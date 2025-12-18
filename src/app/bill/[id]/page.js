@@ -1,28 +1,38 @@
 "use client";
 import { useState, useEffect } from 'react';
+import { useParams } from 'next/navigation'; // <--- NEW: The Safe Way
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import Link from 'next/link';
 
-export default function BillPage({ params }) {
+export default function BillPage() {
+  const params = useParams(); // <--- Grab ID securely
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 1. Fetch the specific Job ID from the URL
   useEffect(() => {
     const fetchJob = async () => {
-      // We unwrap the ID from the URL params
-      const jobId = params.id; 
-      const docRef = doc(db, "jobs", jobId);
-      const docSnap = await getDoc(docRef);
-      
-      if (docSnap.exists()) {
-        setJob(docSnap.data());
+      // 1. Safety Check: If ID isn't ready yet, stop.
+      if (!params?.id) return;
+
+      try {
+        const jobId = params.id; 
+        const docRef = doc(db, "jobs", jobId);
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+          setJob(docSnap.data());
+        } else {
+          console.log("No such document!");
+        }
+      } catch (error) {
+        console.error("Error fetching bill:", error);
       }
       setLoading(false);
     };
+
     fetchJob();
-  }, [params.id]);
+  }, [params]); // Run this whenever params change
 
   if (loading) return <div className="p-10 text-white">Generating Invoice...</div>;
   if (!job) return <div className="p-10 text-white">Invoice Not Found.</div>;
