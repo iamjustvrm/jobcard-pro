@@ -113,6 +113,18 @@ export default function SupervisorDashboard() {
               {/* Controls */}
               <div className="flex flex-col gap-2">
                 <button onClick={() => deleteJob(job.id)} className="text-red-400 hover:text-red-300 text-xs border border-red-400/30 px-3 py-2 rounded">
+                  {/* Controls */}
+              <div className="flex flex-col gap-2">
+                
+                {/* --- NEW BILL BUTTON --- */}
+                <Link href={`/bill/${job.id}`} className="text-center text-blue-400 hover:text-blue-300 text-xs border border-blue-400/30 px-3 py-2 rounded hover:bg-blue-900/20">
+                   🖨️ Invoice
+                </Link>
+                
+                <button onClick={() => deleteJob(job.id)} className="text-red-400 hover:text-red-300 text-xs border border-red-400/30 px-3 py-2 rounded hover:bg-red-900/20">
+                  🗑️ Remove
+                </button>
+              </div>
                   🗑️ Remove
                 </button>
               </div>
