@@ -1,27 +1,25 @@
 "use client";
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
-import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
 export default function SupervisorDashboard() {
   const [jobs, setJobs] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({
     vehicleNumber: '',
     model: '',
     technicianName: '',
     complaints: '',
-    estimatedCost: '', // <--- MONEY FIELD (Only for you)
+    estimatedCost: '',
     status: 'PENDING'
   });
 
-  // 1. LISTEN TO DATABASE (Real-time)
+  // 1. LISTEN TO DATABASE
   useEffect(() => {
     const q = query(collection(db, "jobs"), orderBy("createdAt", "desc"));
     const unsub = onSnapshot(q, (snapshot) => {
       setJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
     });
     return () => unsub();
   }, []);
@@ -35,7 +33,7 @@ export default function SupervisorDashboard() {
     alert("Vehicle Added!");
   };
 
-  // 3. DELETE JOB (Supervisor Only Power)
+  // 3. DELETE JOB
   const deleteJob = async (id) => {
     if(confirm("Are you sure you want to remove this vehicle?")) {
       await deleteDoc(doc(db, "jobs", id));
@@ -71,7 +69,7 @@ export default function SupervisorDashboard() {
 
             <textarea placeholder="Complaints..." rows="2" className="w-full bg-slate-900 border border-slate-700 rounded p-3" value={formData.complaints} onChange={(e) => setFormData({...formData, complaints: e.target.value})} />
 
-            {/* $$$ THE MONEY FIELD $$$ */}
+            {/* MONEY FIELD */}
             <div className="p-3 bg-green-900/20 border border-green-500/30 rounded">
               <label className="text-xs text-green-400 font-bold uppercase">Estimated Billing (₹)</label>
               <input type="number" placeholder="0.00" className="w-full bg-transparent text-green-400 font-mono text-xl outline-none" value={formData.estimatedCost} onChange={(e) => setFormData({...formData, estimatedCost: e.target.value})} />
@@ -103,30 +101,24 @@ export default function SupervisorDashboard() {
                   </span>
                 </div>
                 <p className="text-slate-400 text-sm">{job.model} • <span className="text-blue-300">{job.technicianName}</span></p>
-                
-                {/* FINANCIALS (Visible Only to You) */}
                 <div className="mt-2 text-green-400 font-mono text-sm flex items-center gap-2">
                   <span>💰 Est: ₹{job.estimatedCost || '0'}</span>
                 </div>
               </div>
 
-              {/* Controls */}
-              <div className="flex flex-col gap-2">
-                <button onClick={() => deleteJob(job.id)} className="text-red-400 hover:text-red-300 text-xs border border-red-400/30 px-3 py-2 rounded">
-                  {/* Controls */}
-              <div className="flex flex-col gap-2">
+              {/* Controls - FIXED: Button and Link are separate now */}
+              <div className="flex flex-col gap-2 min-w-[100px]">
                 
-                {/* --- NEW BILL BUTTON --- */}
-                <Link href={`/bill/${job.id}`} className="text-center text-blue-400 hover:text-blue-300 text-xs border border-blue-400/30 px-3 py-2 rounded hover:bg-blue-900/20">
+                {/* INVOICE LINK */}
+                <Link href={`/bill/${job.id}`} className="text-center bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 hover:text-white text-xs border border-blue-400/30 px-3 py-2 rounded transition-all">
                    🖨️ Invoice
                 </Link>
                 
-                <button onClick={() => deleteJob(job.id)} className="text-red-400 hover:text-red-300 text-xs border border-red-400/30 px-3 py-2 rounded hover:bg-red-900/20">
+                {/* DELETE BUTTON */}
+                <button onClick={() => deleteJob(job.id)} className="text-center text-red-400 hover:bg-red-900/20 hover:text-red-300 text-xs border border-red-400/30 px-3 py-2 rounded transition-all">
                   🗑️ Remove
                 </button>
-              </div>
-                  🗑️ Remove
-                </button>
+
               </div>
 
             </div>
