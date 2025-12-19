@@ -74,6 +74,44 @@ export default function AdminPanel() {
   };
   const metrics = calculateMetrics();
 
+  // --- CRM ENGINE (NEW V36) ---
+  const getDueCustomers = () => {
+     const uniqueCustomers = {};
+     const sixMonthsAgo = new Date();
+     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6); // Threshold Date
+
+     // Iterate jobs (which are ordered by Latest First)
+     jobs.forEach(job => {
+        const phone = job.customerPhone?.replace(/\D/g, '').slice(-10);
+        if(!phone) return;
+
+        // Since jobs are desc, the first time we see a phone, it is the LATEST visit
+        if (!uniqueCustomers[phone]) {
+           const jobDate = job.createdAt ? new Date(job.createdAt.seconds * 1000) : new Date();
+           uniqueCustomers[phone] = {
+              name: job.customerName,
+              phone: phone, // Clean phone
+              originalPhone: job.customerPhone,
+              lastCar: job.model,
+              regNo: job.regNo, // Store latest Reg No
+              lastDate: jobDate,
+              daysAgo: Math.floor((new Date() - jobDate) / (1000 * 60 * 60 * 24)),
+              isDue: jobDate < sixMonthsAgo
+           };
+        }
+     });
+
+     // Return only those who are due
+     return Object.values(uniqueCustomers).filter(c => c.isDue).sort((a,b) => b.daysAgo - a.daysAgo);
+  };
+  
+  const dueList = getDueCustomers();
+
+  const sendReminder = (c) => {
+    const msg = `Hello ${c.name}, gentle reminder from JobCard Pro!\n\nYour ${c.lastCar} (${c.regNo}) visited us ${c.daysAgo} days ago. It is time for a General Service check-up to ensure smooth performance.\n\nReply YES to book a slot!`;
+    window.open(`https://wa.me/91${c.phone}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
   // --- HANDLERS ---
   const handleAddItem = async (e) => {
     e.preventDefault();
@@ -113,17 +151,12 @@ export default function AdminPanel() {
   const handleCreateStaff = async (e) => {
     e.preventDefault();
     if(!newStaff.email || !newStaff.password) return alert("Enter Email & Password");
-
     try {
       const secondaryApp = initializeApp(db.app.options, "Secondary");
       const secondaryAuth = getAuth(secondaryApp);
       const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newStaff.email, newStaff.password);
       const uid = userCredential.user.uid;
-      await setDoc(doc(db, "users", uid), {
-        email: newStaff.email,
-        role: newStaff.role,
-        createdAt: serverTimestamp()
-      });
+      await setDoc(doc(db, "users", uid), { email: newStaff.email, role: newStaff.role, createdAt: serverTimestamp() });
       await signOut(secondaryAuth);
       await deleteApp(secondaryApp);
       alert(`✅ Staff Account Created: ${newStaff.email} (${newStaff.role})`);
@@ -138,24 +171,18 @@ export default function AdminPanel() {
   return (
     <div className="min-h-screen bg-slate-900 text-white font-sans pb-20">
       
-      {/* 📱 MOBILE OPTIMIZED HEADER (V34) */}
+      {/* 📱 MOBILE OPTIMIZED HEADER */}
       <div className="bg-slate-900 border-b border-amber-600/30 sticky top-0 z-50 p-4 shadow-2xl backdrop-blur-md bg-opacity-95">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
-           
            {/* Row 1: Logo & Mobile Actions */}
            <div className="flex justify-between items-center w-full md:w-auto">
-              <div>
-                 <h1 className="text-2xl font-black text-amber-500 tracking-widest">MASTER<span className="text-white">ADMIN</span></h1>
-                 <p className="text-[10px] text-slate-400">FINANCIAL COMMAND CENTER</p>
-              </div>
-              {/* Mobile Logout Button (Visible only on small screens) */}
+              <div><h1 className="text-2xl font-black text-amber-500 tracking-widest">MASTER<span className="text-white">ADMIN</span></h1><p className="text-[10px] text-slate-400">FINANCIAL COMMAND CENTER</p></div>
               <div className="flex gap-2 md:hidden">
                   <Link href="/supervisor" className="bg-slate-800 border border-slate-600 px-3 py-2 rounded text-[10px] font-bold">⬅ FLOOR</Link>
                   <button onClick={handleLogout} className="bg-red-900/20 text-red-400 px-3 py-2 rounded border border-red-600/30 text-[10px] font-bold">LOGOUT</button>
               </div>
            </div>
-
-           {/* Row 2: Navigation Tabs (Scrollable on Mobile) */}
+           {/* Row 2: Navigation Tabs (Scrollable) */}
            <div className="flex gap-2 overflow-x-auto pb-1 md:pb-0 whitespace-nowrap scrollbar-hide w-full md:w-auto">
               <button onClick={() => setActiveTab('DASHBOARD')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'DASHBOARD' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>📊 OVERVIEW</button>
               <button onClick={() => setActiveTab('INVENTORY')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'INVENTORY' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>📦 INVENTORY</button>
@@ -163,8 +190,7 @@ export default function AdminPanel() {
               <button onClick={() => setActiveTab('STAFF')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'STAFF' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>👥 STAFF</button>
               <button onClick={() => setActiveTab('CRM')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'CRM' ? 'bg-green-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>📞 CRM</button>
            </div>
-
-           {/* Desktop Actions (Hidden on Mobile) */}
+           {/* Desktop Actions */}
            <div className="hidden md:flex gap-2 items-center">
               <Link href="/supervisor" className="bg-slate-800 border border-slate-600 hover:bg-slate-700 px-3 py-2 rounded text-[10px] font-bold">⬅ OPERATION FLOOR</Link>
               <button onClick={handleLogout} className="bg-red-900/20 hover:bg-red-600 text-red-400 hover:text-white px-3 py-2 rounded border border-red-600/30 text-[10px] font-bold">LOGOUT</button>
@@ -255,12 +281,46 @@ export default function AdminPanel() {
            </div>
         )}
 
-        {/* ================= TAB 5: CRM (Placeholder) ================= */}
+        {/* ================= TAB 5: CRM (ACTIVATED V36) ================= */}
         {activeTab === 'CRM' && (
-           <div className="bg-slate-800 rounded-2xl border border-slate-700 p-10 text-center space-y-6">
-              <div className="text-6xl">📞</div>
-              <h2 className="text-2xl font-black text-white">CRM Module Loading...</h2>
-              <p className="text-slate-400">Ready to initiate Customer Retention protocols.</p>
+           <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6 min-h-[50vh]">
+              <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                 <div>
+                    <h2 className="text-2xl font-black text-green-500">RETENTION<span className="text-white">ENGINE</span></h2>
+                    <p className="text-xs text-slate-400">Customers inactive for 6+ months. Call them back!</p>
+                 </div>
+                 <div className="bg-slate-900 px-4 py-2 rounded-xl border border-slate-700">
+                    <span className="text-xs text-slate-500 font-bold uppercase">Pending Callbacks</span>
+                    <div className="text-2xl font-black text-white text-center">{dueList.length}</div>
+                 </div>
+              </div>
+
+              {/* CRM LIST */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                 {dueList.map((customer, index) => (
+                    <div key={index} className="bg-slate-900 p-4 rounded-xl border-l-4 border-l-green-600 flex flex-col justify-between hover:bg-slate-800 transition-all">
+                       <div className="mb-4">
+                          <div className="flex justify-between items-start">
+                             <h3 className="text-lg font-bold text-white">{customer.name}</h3>
+                             <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-1 rounded">{customer.daysAgo} Days Ago</span>
+                          </div>
+                          <p className="text-sm text-slate-300 mt-1">{customer.lastCar} <span className="text-slate-500">({customer.regNo})</span></p>
+                          <p className="text-xs text-slate-500 mt-2">Last Visit: {customer.lastDate.toLocaleDateString()}</p>
+                       </div>
+                       <button onClick={() => sendReminder(customer)} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 shadow-lg">
+                          <span>📲</span> Send WhatsApp Reminder
+                       </button>
+                    </div>
+                 ))}
+              </div>
+
+              {dueList.length === 0 && (
+                 <div className="text-center py-20">
+                    <div className="text-4xl mb-4">🎉</div>
+                    <h3 className="text-xl font-bold text-white">All Clear!</h3>
+                    <p className="text-slate-400 text-sm">No inactive customers found. Your retention is 100%.</p>
+                 </div>
+              )}
            </div>
         )}
 

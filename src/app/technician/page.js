@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore'; // Added arrayUnion
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore'; 
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { db, auth } from '../../firebase';
 
@@ -12,7 +12,7 @@ export default function TechnicianPortal() {
   const [selectedJobId, setSelectedJobId] = useState(null); 
   const [loading, setLoading] = useState(true);
   
-  // NEW: Request Part State
+  // Request Part State
   const [isRequesting, setIsRequesting] = useState(false);
   const [partRequestName, setPartRequestName] = useState('');
 
@@ -58,7 +58,6 @@ export default function TechnicianPortal() {
   };
 
   const markJobDone = async (jobId) => {
-    // BLOCK IF PENDING PARTS
     if (activeJob.partRequests?.some(r => r.status === 'PENDING')) {
        alert("⛔ CANNOT FINISH: You have pending part requests! Ask Supervisor to clear them.");
        return;
@@ -70,18 +69,17 @@ export default function TechnicianPortal() {
     }
   };
 
-  // 🆕 PART REQUEST HANDLER
   const handleRequestPart = async () => {
     if(!partRequestName) return;
     const request = {
       id: Date.now(),
       name: partRequestName,
-      status: 'PENDING', // PENDING | APPROVED
+      status: 'PENDING',
       timestamp: new Date().toISOString()
     };
     await updateDoc(doc(db, "jobs", selectedJobId), {
       partRequests: arrayUnion(request),
-      status: 'WAITING_PARTS' // Updates status for Supervisor
+      status: 'WAITING_PARTS' 
     });
     setIsRequesting(false);
     setPartRequestName('');
@@ -106,11 +104,19 @@ export default function TechnicianPortal() {
             {jobs.map(job => (
               <div key={job.id} onClick={() => setSelectedJobId(job.id)} className={`p-4 rounded-xl border-l-4 active:bg-gray-800 transition-all ${job.status === 'WAITING_PARTS' ? 'bg-orange-900/20 border-l-orange-500' : 'bg-gray-900 border-l-blue-500'}`}>
                  <div className="flex justify-between items-start">
-                    <div><h3 className="text-2xl font-black text-white">{job.regNo}</h3><p className="text-sm text-gray-400">{job.model}</p></div>
+                    <div>
+                        <h3 className="text-2xl font-black text-white">{job.regNo}</h3>
+                        <p className="text-sm text-gray-400">
+                            {job.model} 
+                            {/* 🆕 COLOR BADGE */}
+                            {job.color && <span className="ml-2 text-[10px] bg-gray-700 px-2 py-0.5 rounded text-white border border-gray-600">{job.color}</span>}
+                        </p>
+                    </div>
                     <div className="text-right"><span className={`text-[10px] px-2 py-1 rounded font-bold ${job.status === 'WAITING_PARTS' ? 'bg-orange-500 text-black animate-pulse' : 'bg-yellow-500 text-black'}`}>{job.status}</span></div>
                  </div>
               </div>
             ))}
+            {jobs.length === 0 && <div className="text-center text-gray-600 mt-10">No vehicles on the floor.</div>}
           </div>
         )}
 
@@ -121,17 +127,23 @@ export default function TechnicianPortal() {
              {/* HEADER */}
              <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 mb-6">
                 <h1 className="text-3xl font-black text-yellow-400">{activeJob.regNo}</h1>
-                <div className="flex justify-between mt-2 text-sm text-gray-300"><span>{activeJob.model}</span><span>{activeJob.odometer} KM</span></div>
+                <div className="flex justify-between mt-2 text-sm text-gray-300">
+                    <span>
+                        {activeJob.model} 
+                        {/* 🆕 COLOR DISPLAY INSIDE JOB */}
+                        {activeJob.color && <span className="ml-2 text-xs bg-gray-700 px-2 py-1 rounded text-white">{activeJob.color}</span>}
+                    </span>
+                    <span>{activeJob.odometer} KM</span>
+                </div>
              </div>
 
-             {/* 🆕 EXTRA PARTS REQUESTS SECTION */}
+             {/* REQUESTS SECTION */}
              <div className="mb-6 border border-dashed border-gray-600 rounded-xl p-4 bg-gray-900/50">
                 <h3 className="text-xs font-bold text-orange-400 uppercase mb-2 flex justify-between items-center">
                   <span>🔔 Extra Parts Requests</span>
                   <button onClick={() => setIsRequesting(!isRequesting)} className="text-[10px] bg-orange-600 text-black px-2 py-1 rounded font-bold hover:bg-orange-500">+ REQUEST</button>
                 </h3>
                 
-                {/* REQUEST FORM */}
                 {isRequesting && (
                   <div className="mb-4 flex gap-2">
                     <input autoFocus placeholder="Part Name (e.g. Drive Belt)" className="bg-black border border-gray-600 rounded text-sm p-2 flex-grow text-white" value={partRequestName} onChange={e => setPartRequestName(e.target.value)} />
@@ -139,7 +151,6 @@ export default function TechnicianPortal() {
                   </div>
                 )}
 
-                {/* REQUEST LIST */}
                 <div className="space-y-2">
                   {activeJob.partRequests?.map((req, i) => (
                     <div key={i} className="flex justify-between items-center bg-black p-2 rounded border border-gray-800">
@@ -153,7 +164,7 @@ export default function TechnicianPortal() {
                 </div>
              </div>
 
-             {/* EXISTING PARTS LIST */}
+             {/* APPROVED PARTS */}
              <div className="mb-6">
                 <h3 className="text-xs font-bold text-purple-400 uppercase mb-2">📦 Approved Parts (Store)</h3>
                 <div className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">

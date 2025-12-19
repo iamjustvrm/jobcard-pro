@@ -6,7 +6,7 @@ import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, d
 import { onAuthStateChanged, signOut } from 'firebase/auth'; 
 import { db, auth } from '../../firebase';
 
-// 📋 MASTER DATA CONSTANTS (ORIGINAL)
+// 📋 MASTER DATA CONSTANTS
 const INVENTORY_ITEMS = ["Spare Wheel", "Jack & Rod", "Tool Kit", "Stereo Faceplate", "Mud Flaps", "Floor Mats", "God Idol / Perfume", "Manual / Service Book"];
 const BODY_PANELS = ["Front Bumper", "Rear Bumper", "Bonnet", "Roof", "Left Doors", "Right Doors", "Tailgate", "Windshield"];
 const WARNING_LIGHTS = ["Check Engine", "ABS", "Airbag", "Battery", "Oil Pressure", "Coolant Temp"];
@@ -15,7 +15,14 @@ const BODY_TYPES = ["Hatchback", "Sedan", "SUV", "Luxury", "Commercial"];
 const SERVICE_TYPES = ["PMS (Periodic Service)", "Running Repair", "Accidental", "Breakdown", "Warranty Check"];
 const TECHNICIANS = ["Raju Mechanic", "John Doe", "Electrical Specialist"];
 
-// 🧠 AI RULES ENGINE
+// 🆕 USAGE PROFILES
+const USAGE_PROFILES = [
+  { label: "🐢 Low (School/Shop ~15km/day)", value: "LOW" },
+  { label: "🚗 Medium (Office ~40km/day)", value: "MEDIUM" },
+  { label: "🚀 High (Highway ~80km/day)", value: "HIGH" },
+  { label: "🚕 Commercial (Taxi ~200km/day)", value: "COMMERCIAL" }
+];
+
 const AI_RULES = [
   { keywords: ["brake", "noise", "grinding", "squeak", "pad", "disc"], tasks: ["Inspect Brake Pads (Front/Rear)", "Check Disc Rotor condition", "Bleed Brake Fluid"] },
   { keywords: ["ac", "cooling", "hot", "smell", "compressor"], tasks: ["Check AC Gas Pressure", "Inspect Cabin Filter", "Check Compressor Clutch"] },
@@ -39,10 +46,11 @@ export default function SupervisorDashboard() {
   // --- MASTER STATE ---
   const [formData, setFormData] = useState({
     customerName: '', customerPhone: '', billingName: '', gstin: '',
-    regNo: '', make: '', model: '', variant: '', bodyType: 'Hatchback', 
-    fuelType: 'Petrol', serviceType: 'PMS', 
+    regNo: '', make: '', model: '', variant: '', color: '', // 🆕 Added Color
+    bodyType: 'Hatchback', fuelType: 'Petrol', serviceType: 'PMS', 
     odometer: '', vin: '', engineNo: '', keyNo: '', batteryId: '',
     fuelLevel: '50', tyreCondition: 'OK',
+    usageProfile: 'MEDIUM',
     inventory: {}, warningLights: {}, bodyDamages: {}, 
     supervisorObs: '', customerImages: '', voiceNoteLink: '', obdScanReport: '', testDriveReport: '', 
     promisedDelivery: '', complaints: '', technicianName: '', 
@@ -99,7 +107,7 @@ export default function SupervisorDashboard() {
 
   const handleLogout = async () => { await signOut(auth); router.push('/'); };
 
-  // --- HANDLERS (ORIGINAL V30 + NEW APPROVALS) ---
+  // --- HANDLERS ---
   const updateForm = (field, value) => { setFormData(prev => ({ ...prev, [field]: value })); };
   const toggleInventory = (item) => setFormData(p => ({ ...p, inventory: { ...p.inventory, [item]: !p.inventory[item] } }));
   const toggleWarningLight = (light) => setFormData(p => ({ ...p, warningLights: { ...p.warningLights, [light]: !p.warningLights[light] } }));
@@ -181,7 +189,7 @@ export default function SupervisorDashboard() {
          alert(`✅ Job Created & Assigned to ${formData.technicianName}`);
       }
       setActiveTab('DASHBOARD');
-      setFormData({ customerName: '', customerPhone: '', billingName: '', gstin: '', regNo: '', make: '', model: '', variant: '', bodyType: 'Hatchback', fuelType: 'Petrol', serviceType: 'PMS', odometer: '', vin: '', engineNo: '', keyNo: '', batteryId: '', fuelLevel: '50', tyreCondition: 'OK', inventory: {}, warningLights: {}, bodyDamages: {}, supervisorObs: '', customerImages: '', voiceNoteLink: '', obdScanReport: '', testDriveReport: '', promisedDelivery: '', complaints: '', technicianName: '', blocks: [ { name: 'Mechanical', status: 'PENDING', steps: [] }, { name: 'Electrical', status: 'PENDING', steps: [] }, { name: 'QC', status: 'PENDING', steps: ['Final Road Test', 'OBD Scan'] } ], status: 'ESTIMATE', expenses: [], parts: [], labor: [] });
+      setFormData({ customerName: '', customerPhone: '', billingName: '', gstin: '', regNo: '', make: '', model: '', variant: '', color: '', bodyType: 'Hatchback', fuelType: 'Petrol', serviceType: 'PMS', odometer: '', vin: '', engineNo: '', keyNo: '', batteryId: '', fuelLevel: '50', tyreCondition: 'OK', usageProfile: 'MEDIUM', inventory: {}, warningLights: {}, bodyDamages: {}, supervisorObs: '', customerImages: '', voiceNoteLink: '', obdScanReport: '', testDriveReport: '', promisedDelivery: '', complaints: '', technicianName: '', blocks: [ { name: 'Mechanical', status: 'PENDING', steps: [] }, { name: 'Electrical', status: 'PENDING', steps: [] }, { name: 'QC', status: 'PENDING', steps: ['Final Road Test', 'OBD Scan'] } ], status: 'ESTIMATE', expenses: [], parts: [], labor: [] });
       setIsEditing(false);
     } catch (err) { alert("Error: " + err.message); }
   };
@@ -199,33 +207,15 @@ export default function SupervisorDashboard() {
 
   const printJobCard = () => { window.print(); };
 
-  // 🆕 NEW: APPROVE REQUEST HANDLER
   const approveRequest = async (job, request) => {
-    // 1. Mark request as APPROVED
     const updatedRequests = job.partRequests.map(r => r.id === request.id ? { ...r, status: 'APPROVED' } : r);
-    
-    // 2. Add to actual Parts list (find price from DB)
     const masterItem = inventoryDB.find(i => i.name === request.name);
     const price = masterItem ? masterItem.price : 0;
-    
-    const newPart = {
-       id: Date.now(),
-       category: 'PART',
-       desc: request.name,
-       qty: 1,
-       price: price,
-       total: price
-    };
-
-    await updateDoc(doc(db, "jobs", job.id), {
-      partRequests: updatedRequests,
-      parts: [...(job.parts || []), newPart],
-      status: 'WORK_IN_PROGRESS'
-    });
+    const newPart = { id: Date.now(), category: 'PART', desc: request.name, qty: 1, price: price, total: price };
+    await updateDoc(doc(db, "jobs", job.id), { partRequests: updatedRequests, parts: [...(job.parts || []), newPart], status: 'WORK_IN_PROGRESS' });
     alert(`✅ Request Approved: ${request.name}`);
   };
 
-  // 🆕 NEW: ASK CUSTOMER
   const askCustomerApproval = (job, requestName) => {
     const msg = `*⚠️ ADDITIONAL APPROVAL NEEDED*\n*Vehicle:* ${job.regNo}\n\nTechnician found issue with: *${requestName}*\n\nPlease reply APPROVE to proceed.`;
     window.open(`https://wa.me/91${job.customerPhone.replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -235,10 +225,9 @@ export default function SupervisorDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-white font-sans pb-20 print:bg-white print:text-black">
-      
       {/* NAVBAR */}
       <div className="print:hidden bg-slate-800 border-b border-slate-700 sticky top-0 z-50 shadow-xl p-4 flex justify-between items-center">
-        <h1 className="text-xl md:text-2xl font-black text-blue-500">JOB<span className="text-white">CARD</span> <span className="text-xs text-slate-500">V34 FULL</span></h1>
+        <h1 className="text-xl md:text-2xl font-black text-blue-500">JOB<span className="text-white">CARD</span> <span className="text-xs text-slate-500">V37 COLOR</span></h1>
         <div className="flex gap-4 items-center">
            <div className="flex bg-slate-900 rounded-lg p-1">
               <button onClick={() => {setActiveTab('DASHBOARD'); setSelectedJobId(null); setIsEditing(false)}} className={`px-4 py-1 rounded text-xs md:text-sm font-bold transition-all ${activeTab === 'DASHBOARD' ? 'bg-blue-600 shadow' : 'text-slate-400'}`}>📡 Fleet</button>
@@ -250,7 +239,7 @@ export default function SupervisorDashboard() {
 
       <div className="max-w-7xl mx-auto p-4 md:p-6 print:p-0 print:max-w-none">
         
-        {/* ================= VIEW 1: INTAKE FORM (FULLY RESTORED) ================= */}
+        {/* ================= VIEW 1: INTAKE FORM ================= */}
         <div className="print:hidden">
         {activeTab === 'NEW_ENTRY' && (
           <div className="max-w-5xl mx-auto bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden">
@@ -275,22 +264,31 @@ export default function SupervisorDashboard() {
                 <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider border-b border-slate-700 pb-2">2. Vehicle DNA</h3>
                 <div className="grid grid-cols-2 gap-4"><input required placeholder="REG NO" className="bg-slate-900 border border-slate-600 rounded-lg p-4 uppercase font-bold text-yellow-400" value={formData.regNo} onChange={e => updateForm('regNo', e.target.value.toUpperCase())} /><input required placeholder="Model" className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.model} onChange={e => updateForm('model', e.target.value)} /></div>
                 
-                {/* BODY TYPE SELECTOR */}
-                <div className="grid grid-cols-2 gap-4">
-                   <div>
-                     <label className="text-[10px] text-blue-400 font-bold ml-1">BODY TYPE (For Pricing)</label>
-                     <select className="w-full bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.bodyType} onChange={e => updateForm('bodyType', e.target.value)}>{BODY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
-                   </div>
-                   <div>
-                     <label className="text-[10px] text-blue-400 font-bold ml-1">FUEL TYPE</label>
-                     <select className="w-full bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.fuelType} onChange={e => updateForm('fuelType', e.target.value)}>{FUEL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
-                   </div>
+                {/* 🆕 USAGE PROFILE */}
+                <div className="bg-blue-900/20 border border-blue-500/30 p-4 rounded-xl">
+                   <label className="text-xs font-bold text-blue-400 uppercase mb-2 block">🚙 Vehicle Lifestyle</label>
+                   <select className="w-full bg-slate-900 border border-slate-600 rounded-lg p-4 font-bold text-white" value={formData.usageProfile} onChange={e => updateForm('usageProfile', e.target.value)}>
+                      {USAGE_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                   </select>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4"><input placeholder="Variant" className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.variant} onChange={e => updateForm('variant', e.target.value)} /><input required type="number" placeholder="Odometer" className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.odometer} onChange={e => updateForm('odometer', e.target.value)} /></div>
+                <div className="grid grid-cols-2 gap-4">
+                   <div><label className="text-[10px] text-blue-400 font-bold ml-1">BODY TYPE</label><select className="w-full bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.bodyType} onChange={e => updateForm('bodyType', e.target.value)}>{BODY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+                   <div><label className="text-[10px] text-blue-400 font-bold ml-1">FUEL TYPE</label><select className="w-full bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.fuelType} onChange={e => updateForm('fuelType', e.target.value)}>{FUEL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+                </div>
+                
+                {/* VIN & ENGINE */}
                 <div className="grid grid-cols-2 gap-4"><input placeholder="VIN" className="bg-slate-900 border border-slate-600 rounded-lg p-4 uppercase" value={formData.vin} onChange={e => updateForm('vin', e.target.value)} /><input placeholder="Engine No" className="bg-slate-900 border border-slate-600 rounded-lg p-4 uppercase" value={formData.engineNo} onChange={e => updateForm('engineNo', e.target.value)} /></div>
-                <div className="grid grid-cols-2 gap-4"><select className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.serviceType} onChange={e => updateForm('serviceType', e.target.value)}>{SERVICE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+                
+                {/* 🆕 ADDED COLOR + VARIANT */}
+                <div className="grid grid-cols-2 gap-4">
+                    <input placeholder="Variant" className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.variant} onChange={e => updateForm('variant', e.target.value)} />
+                    <input placeholder="Color" className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.color} onChange={e => updateForm('color', e.target.value)} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4"><input required type="number" placeholder="Odometer" className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.odometer} onChange={e => updateForm('odometer', e.target.value)} /><select className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.serviceType} onChange={e => updateForm('serviceType', e.target.value)}>{SERVICE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
               </div>
+              
               {/* 3. DISPUTE SHIELD */}
               <div className="bg-slate-900/50 p-6 rounded-xl border border-slate-600 space-y-8">
                 <div className="flex justify-between items-center border-b border-slate-700 pb-2"><h3 className="text-sm font-bold text-red-400 uppercase tracking-wider">3. Dispute Shield</h3></div>
@@ -337,7 +335,7 @@ export default function SupervisorDashboard() {
         )}
         </div>
 
-        {/* ================= VIEW 2: DASHBOARD (WITH NOTIFICATIONS) ================= */}
+        {/* ================= VIEW 2: DASHBOARD ================= */}
         {activeTab === 'DASHBOARD' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:hidden">
             <div className="lg:col-span-2 space-y-4">
@@ -374,7 +372,6 @@ export default function SupervisorDashboard() {
                         <span className="bg-slate-700 px-2 rounded">{job.fuelType}</span>
                       </div>
                       
-                      {/* 🔔 NEW: APPROVALS ALERT BOX */}
                       {job.partRequests?.some(r => r.status === 'PENDING') && (
                         <div className="bg-orange-900/30 border border-orange-500 rounded-xl p-4">
                            <h3 className="text-xs font-bold text-orange-400 uppercase mb-3 flex items-center gap-2">⚠️ APPROVALS NEEDED</h3>
@@ -403,8 +400,6 @@ export default function SupervisorDashboard() {
                       
                       <div className="bg-slate-900/50 p-4 rounded border border-slate-700">
                          <h3 className="text-xs font-bold text-blue-400 uppercase mb-2">Add Items</h3>
-                         
-                         {/* SMART DROPDOWN */}
                          <div className="mb-2">
                            <select onChange={handleMasterItemSelect} className="w-full bg-slate-700 border border-slate-500 rounded p-2 text-xs text-white">
                              <option value="">-- Select Smart Item --</option>
@@ -416,7 +411,6 @@ export default function SupervisorDashboard() {
                              Showing {filteredInventory.length} items for {job.fuelType} {job.bodyType || 'Hatchback'}
                            </div>
                          </div>
-
                          <div className="space-y-2">
                             <select className="w-full bg-slate-800 rounded p-2 text-xs" value={newItem.category} onChange={e => setNewItem({...newItem, category: e.target.value})}><option value="PART">Spare Part</option><option value="LABOR">Labor</option></select>
                             <input className="w-full bg-slate-800 rounded p-2 text-xs" placeholder="Desc" value={newItem.desc} onChange={e => setNewItem({...newItem, desc: e.target.value})} />
@@ -443,7 +437,7 @@ export default function SupervisorDashboard() {
           </div>
         )}
 
-        {/* ================= PRINT TEMPLATE (RESTORED) ================= */}
+        {/* ================= PRINT TEMPLATE (UPDATED FOR COLOR) ================= */}
         <div className="hidden print:block text-black bg-white p-6 font-mono">
            {selectedJobId && (() => {
               const job = jobs.find(j => j.id === selectedJobId);
@@ -455,9 +449,11 @@ export default function SupervisorDashboard() {
                        <div className="text-right"><h2 className="text-2xl font-bold">{job.regNo}</h2><p className="text-sm">{new Date(job.createdAt?.seconds * 1000).toLocaleString()}</p></div>
                     </div>
                     <div className="grid grid-cols-2 gap-4 border-b border-gray-400 pb-4 text-sm">
-                       <div><p><strong>Customer:</strong> {job.customerName}</p><p><strong>Phone:</strong> {job.customerPhone}</p><p><strong>Model:</strong> {job.model} ({job.fuelType} {job.bodyType})</p></div>
+                       {/* 🆕 ADDED COLOR HERE */}
+                       <div><p><strong>Customer:</strong> {job.customerName}</p><p><strong>Phone:</strong> {job.customerPhone}</p><p><strong>Model:</strong> {job.model} - {job.color || 'N/A'}</p></div>
                        <div><p><strong>Technician:</strong> {job.technicianName}</p><p><strong>Service:</strong> {job.serviceType}</p><p><strong>Odometer:</strong> {job.odometer} KM</p></div>
                     </div>
+                    {/* ... Rest of print template ... */}
                     <div className="border-b border-gray-400 pb-4 text-sm">
                        <h3 className="font-bold uppercase mb-2 text-lg underline">Inspection & Obs</h3>
                        <p className="mb-2"><strong>Supervisor Notes:</strong> {job.supervisorObs || 'None'}</p>
