@@ -1,215 +1,205 @@
 "use client";
 import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation'; // To read the ID from URL
+import { useParams } from 'next/navigation';
 import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../../firebase';
+import { db } from '../../../firebase'; 
 
-// 🏢 WORKSHOP CONFIGURATION (Change these to your real details)
-const SHOP_CONFIG = {
-  name: "CHENNAI CAR CARE",
-  address: "SARASWATHI NAGAR, THIRUMULLAIVOIL, CHENNAI - 600062",
-  phone: "+91 97907 46669",
-  email: "chennaicarcare@outlook.com",
-  gstin: "SAMPLE1234F1Z5", // Your GST Number
-  upiId: "your-upi-id@okhdfcbank", // Your UPI ID for QR Code
-  bankName: "SAMPLE Bank",
-  accountNo: "SAMPLE123456789",
-  ifsc: "HSAMPLE0001234"
-};
+// 🏦 YOUR PAYMENT DETAILS
+const WORKSHOP_UPI_ID = "shop@upi"; 
+const WORKSHOP_NAME = "AutoFix Center";
 
-export default function BillPage() {
-  const { id } = useParams();
+export default function InvoicePage() {
+  const { id } = useParams(); 
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // FETCH JOB DATA
+  // 1. FETCH DATA SAFELY
   useEffect(() => {
+    if (!id) return;
     const fetchJob = async () => {
-      if (!id) return;
-      const docRef = doc(db, "jobs", id);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        setJob({ id: docSnap.id, ...docSnap.data() });
-      } else {
-        alert("Job not found!");
+      try {
+        const docRef = doc(db, "jobs", id);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setJob({ id: docSnap.id, ...docSnap.data() });
+        } else {
+          alert("Job not found!");
+        }
+      } catch (error) {
+        console.error("Error fetching invoice:", error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     fetchJob();
   }, [id]);
 
-  if (loading) return <div className="min-h-screen bg-white flex items-center justify-center text-black font-bold">📄 Generating Invoice...</div>;
-  if (!job) return <div className="text-center p-10 text-red-500">Invoice not found.</div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-500">📄 Generating Tax Invoice...</div>;
+  if (!job) return <div className="min-h-screen flex items-center justify-center text-red-500">❌ Invoice Not Found</div>;
 
-  // 🧮 CALCULATION ENGINE
-  const partTotal = job.parts?.reduce((a, b) => a + Number(b.total), 0) || 0;
-  const laborTotal = job.labor?.reduce((a, b) => a + Number(b.total), 0) || 0;
-  const subTotal = partTotal + laborTotal;
+  // 2. FINANCIAL CALCULATIONS
+  const partsTotal = job.parts?.reduce((sum, item) => sum + (Number(item.total) || 0), 0) || 0;
+  const laborTotal = job.labor?.reduce((sum, item) => sum + (Number(item.total) || 0), 0) || 0;
   
-  // GST LOGIC (Assuming 18% Standard for Auto Services)
-  const gstRate = 18;
-  const sgstAmount = subTotal * 0.09; // 9%
-  const cgstAmount = subTotal * 0.09; // 9%
-  const grandTotal = Math.round(subTotal + sgstAmount + cgstAmount);
+  const TAX_RATE = 0.18; 
+  const subTotal = partsTotal + laborTotal;
+  const sgst = subTotal * (TAX_RATE / 2); 
+  const cgst = subTotal * (TAX_RATE / 2); 
+  const grandTotal = Math.round(subTotal + sgst + cgst);
 
-  // 📅 DATE FORMATTER
-  const invoiceDate = job.createdAt 
-    ? new Date(job.createdAt.seconds * 1000).toLocaleDateString("en-GB") 
-    : new Date().toLocaleDateString("en-GB");
-
-  // 📤 ACTIONS
-  const handlePrint = () => window.print();
+  // 3. PREDICTIVE SERVICE CALCULATIONS (The New Feature) 🧠
+  const currentOdo = Number(job.odometer) || 0;
+  const nextServiceKm = currentOdo + 10000;
   
-  const sendWhatsApp = () => {
-    const msg = `*INVOICE: ${job.regNo}*\nTotal Amount: ₹${grandTotal}\nPayable via GPay/PhonePe.\nThank you for visiting ${SHOP_CONFIG.name}!`;
+  const nextServiceDate = new Date();
+  nextServiceDate.setMonth(nextServiceDate.getMonth() + 6);
+  const nextServiceDateString = nextServiceDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  // 4. QR CODE GENERATION
+  const upiString = `upi://pay?pa=${WORKSHOP_UPI_ID}&pn=${encodeURIComponent(WORKSHOP_NAME)}&am=${grandTotal}&tn=Inv-${job.regNo}`;
+  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiString)}`;
+
+  // 5. SHARE
+  const shareInvoice = () => {
+    const msg = `*🧾 INVOICE - ${WORKSHOP_NAME}*\n\n*Customer:* ${job.customerName}\n*Vehicle:* ${job.model} (${job.regNo})\n\n*Bill Summary:*\nParts: ₹${partsTotal}\nLabor: ₹${laborTotal}\nTax (18%): ₹${(sgst + cgst).toFixed(2)}\n*TOTAL: ₹${grandTotal}*\n\n*Next Service Due:*\n📅 ${nextServiceDateString} OR 🚗 ${nextServiceKm} KM\n\nPay via UPI: ${WORKSHOP_UPI_ID}`;
     window.open(`https://wa.me/91${job.customerPhone.replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
+  const printInvoice = () => window.print();
+
   return (
-    <div className="min-h-screen bg-gray-100 p-4 md:p-8 print:p-0 print:bg-white text-black font-sans">
+    <div className="min-h-screen bg-gray-100 p-4 md:p-8 text-black font-sans">
       
-      {/* --- CONTROL BAR (Hidden on Print) --- */}
-      <div className="max-w-4xl mx-auto mb-6 flex justify-between items-center print:hidden">
-        <h1 className="text-xl font-bold text-gray-700">INVOICE PREVIEW</h1>
-        <div className="flex gap-4">
-           <button onClick={sendWhatsApp} className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded font-bold shadow">WhatsApp PDF</button>
-           <button onClick={handlePrint} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded font-bold shadow">🖨️ PRINT INVOICE</button>
-        </div>
+      {/* CONTROLS */}
+      <div className="max-w-4xl mx-auto mb-6 flex gap-4 print:hidden">
+        <button onClick={printInvoice} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded shadow-lg flex items-center justify-center gap-2"><span>🖨️</span> PRINT</button>
+        <button onClick={shareInvoice} className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded shadow-lg flex items-center justify-center gap-2"><span>📲</span> WHATSAPP</button>
       </div>
 
-      {/* --- THE INVOICE PAPER (A4 Look) --- */}
-      <div className="max-w-[210mm] mx-auto bg-white shadow-2xl print:shadow-none p-8 md:p-12 print:p-0 min-h-[297mm]">
+      {/* INVOICE SHEET */}
+      <div className="max-w-4xl mx-auto bg-white shadow-2xl p-8 md:p-12 min-h-[1000px] print:shadow-none print:p-0 relative">
         
-        {/* 1. HEADER */}
+        {/* HEADER */}
         <div className="flex justify-between items-start border-b-2 border-black pb-6 mb-6">
            <div>
-              <h1 className="text-3xl font-black tracking-tight text-blue-900">{SHOP_CONFIG.name}</h1>
-              <p className="text-sm font-medium mt-1 w-2/3 text-gray-600">{SHOP_CONFIG.address}</p>
-              <p className="text-sm font-bold mt-2">GSTIN: {SHOP_CONFIG.gstin}</p>
-              <p className="text-sm">Phone: {SHOP_CONFIG.phone}</p>
+              <h1 className="text-4xl font-black tracking-tighter text-blue-900">AUTO<span className="text-black">FIX</span> <span className="text-xs text-gray-500 font-normal block mt-1">PREMIUM CAR CARE CENTER</span></h1>
+              <p className="text-sm text-gray-600 mt-2 max-w-xs">Plot No. 123, Auto Nagar, Hyderabad, India - 500001</p>
+              <p className="text-sm text-gray-600">📞 +91 98765 43210 | 📧 support@autofix.com</p>
            </div>
            <div className="text-right">
-              <h2 className="text-4xl font-black text-gray-200 uppercase">Tax Invoice</h2>
-              <p className="text-lg font-bold mt-2">INV-{job.regNo.replace(/\s/g, '')}-{job.id.slice(-4)}</p>
-              <p className="text-sm font-medium text-gray-500">Date: {invoiceDate}</p>
+              <h2 className="text-2xl font-bold text-gray-400">TAX INVOICE</h2>
+              <p className="font-mono text-lg font-bold">#{job.id.slice(-6).toUpperCase()}</p>
+              <p className="text-sm text-gray-500">Date: {new Date().toLocaleDateString()}</p>
+              <p className="text-sm font-bold mt-2">GSTIN: 36ABCDE1234F1Z5</p>
            </div>
         </div>
 
-        {/* 2. BILL TO & VEHICLE INFO */}
-        <div className="grid grid-cols-2 gap-8 mb-8">
-           <div className="bg-gray-50 p-4 rounded border border-gray-200 print:border-none print:bg-transparent print:p-0">
-              <h3 className="text-xs font-bold text-gray-400 uppercase mb-1">Bill To Customer</h3>
-              <p className="text-lg font-bold">{job.billingName || job.customerName}</p>
-              <p className="text-sm text-gray-600">{job.customerPhone}</p>
-              {job.gstin && <p className="text-sm text-gray-600 font-bold">GST: {job.gstin}</p>}
+        {/* INFO GRID */}
+        <div className="grid grid-cols-2 gap-8 mb-8 text-sm">
+           <div className="bg-gray-50 p-4 rounded border border-gray-200">
+              <h3 className="font-bold uppercase text-gray-500 mb-2 text-xs">Billed To</h3>
+              <p className="font-bold text-lg">{job.billingName || job.customerName}</p>
+              <p>{job.customerPhone}</p>
+              {job.gstin && <p className="font-mono mt-1 text-xs">GSTIN: {job.gstin}</p>}
            </div>
-           <div className="bg-gray-50 p-4 rounded border border-gray-200 print:border-none print:bg-transparent print:p-0">
-              <h3 className="text-xs font-bold text-gray-400 uppercase mb-1">Vehicle Details</h3>
-              <div className="grid grid-cols-2 text-sm">
-                <span className="font-bold">Reg No:</span> <span>{job.regNo}</span>
-                <span className="font-bold">Model:</span> <span>{job.model} ({job.fuelType})</span>
-                <span className="font-bold">Odometer:</span> <span>{job.odometer} KM</span>
-                <span className="font-bold">Job Type:</span> <span>{job.serviceType}</span>
-              </div>
+           <div className="bg-gray-50 p-4 rounded border border-gray-200 text-right">
+              <h3 className="font-bold uppercase text-gray-500 mb-2 text-xs">Vehicle Details</h3>
+              <p className="font-bold text-lg">{job.regNo}</p>
+              <p>{job.model} {job.color ? `- ${job.color}` : ''}</p>
+              <p className="text-gray-500">{job.fuelType} | {job.odometer} KM</p>
+              {job.vin && <p className="font-mono text-xs mt-1">VIN: {job.vin}</p>}
            </div>
         </div>
 
-        {/* 3. ITEMIZED TABLE */}
-        <table className="w-full text-sm mb-8">
-           <thead>
-              <tr className="bg-blue-900 text-white print:bg-gray-200 print:text-black">
-                 <th className="p-3 text-left w-12">#</th>
-                 <th className="p-3 text-left">Description</th>
-                 <th className="p-3 text-center">HSN/SAC</th>
-                 <th className="p-3 text-center">Qty</th>
-                 <th className="p-3 text-right">Rate</th>
-                 <th className="p-3 text-right">Total</th>
-              </tr>
-           </thead>
-           <tbody className="divide-y divide-gray-300">
-              {/* PARTS LOOP */}
-              {job.parts?.map((item, i) => (
-                 <tr key={`p-${i}`}>
-                    <td className="p-3 text-gray-500">{i + 1}</td>
-                    <td className="p-3 font-medium">{item.desc}</td>
-                    <td className="p-3 text-center text-gray-500">8708</td>
-                    <td className="p-3 text-center">{item.qty}</td>
-                    <td className="p-3 text-right">₹{item.price}</td>
-                    <td className="p-3 text-right font-bold">₹{item.total}</td>
-                 </tr>
-              ))}
-              {/* LABOR LOOP */}
-              {job.labor?.map((item, i) => (
-                 <tr key={`l-${i}`}>
-                    <td className="p-3 text-gray-500">{job.parts?.length + i + 1}</td>
-                    <td className="p-3 font-medium">{item.desc} <span className="text-xs text-gray-400 italic">(Labor)</span></td>
-                    <td className="p-3 text-center text-gray-500">9987</td>
-                    <td className="p-3 text-center">-</td>
-                    <td className="p-3 text-right">-</td>
-                    <td className="p-3 text-right font-bold">₹{item.total}</td>
-                 </tr>
-              ))}
-           </tbody>
-        </table>
-
-        {/* 4. TOTALS & TAX BREAKDOWN */}
-        <div className="flex justify-end mb-10">
-           <div className="w-1/2 md:w-1/3 space-y-2">
-              <div className="flex justify-between text-sm">
-                 <span className="text-gray-600">Taxable Amount</span>
-                 <span className="font-bold">₹{subTotal.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                 <span className="text-gray-600">Add: CGST (9%)</span>
-                 <span>₹{cgstAmount.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                 <span className="text-gray-600">Add: SGST (9%)</span>
-                 <span>₹{sgstAmount.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-xl font-black bg-gray-100 p-2 border-t-2 border-black">
-                 <span>GRAND TOTAL</span>
-                 <span>₹{grandTotal.toLocaleString()}</span>
-              </div>
-              <div className="text-xs text-right text-gray-500 italic">
-                 (Amount in words: Rupees {grandTotal} Only)
-              </div>
-           </div>
+        {/* ITEMS TABLE */}
+        <div className="border-t-2 border-black mb-2"></div>
+        <div className="grid grid-cols-12 font-bold text-xs uppercase text-gray-600 py-2 border-b border-gray-300">
+           <div className="col-span-1">#</div>
+           <div className="col-span-5">Description</div>
+           <div className="col-span-2 text-center">HSN/SAC</div>
+           <div className="col-span-1 text-center">Qty</div>
+           <div className="col-span-1 text-right">Rate</div>
+           <div className="col-span-2 text-right">Amount</div>
         </div>
 
-        {/* 5. FOOTER: BANK & QR CODE */}
-        <div className="grid grid-cols-3 gap-8 border-t-2 border-black pt-6">
+        <div className="min-h-[300px]">
+           {job.parts?.map((item, i) => (
+             <div key={`p-${i}`} className="grid grid-cols-12 text-sm py-2 border-b border-gray-100 items-center">
+                <div className="col-span-1 text-gray-400">{i+1}</div>
+                <div className="col-span-5 font-bold">{item.desc}</div>
+                <div className="col-span-2 text-center text-gray-400">8708</div>
+                <div className="col-span-1 text-center">{item.qty}</div>
+                <div className="col-span-1 text-right">{item.price}</div>
+                <div className="col-span-2 text-right font-bold">{item.total}</div>
+             </div>
+           ))}
+           {job.labor?.map((item, i) => (
+             <div key={`l-${i}`} className="grid grid-cols-12 text-sm py-2 border-b border-gray-100 items-center">
+                <div className="col-span-1 text-gray-400">L-{i+1}</div>
+                <div className="col-span-5">{item.desc} (Labor)</div>
+                <div className="col-span-2 text-center text-gray-400">9987</div>
+                <div className="col-span-1 text-center">-</div>
+                <div className="col-span-1 text-right">{item.price}</div>
+                <div className="col-span-2 text-right font-bold">{item.total}</div>
+             </div>
+           ))}
+        </div>
+
+        {/* TOTALS & FOOTER */}
+        <div className="flex justify-between mt-6 border-t border-black pt-6">
            
-           {/* BANK DETAILS */}
-           <div className="col-span-1 text-xs space-y-1">
-              <h4 className="font-bold uppercase mb-2">Bank Details</h4>
-              <p>Bank: {SHOP_CONFIG.bankName}</p>
-              <p>A/c No: {SHOP_CONFIG.accountNo}</p>
-              <p>IFSC: {SHOP_CONFIG.ifsc}</p>
-              <p className="mt-4 font-bold">Terms & Conditions:</p>
-              <ul className="list-disc pl-4 text-[10px] text-gray-500">
-                 <li>Goods once sold will not be taken back.</li>
-                 <li>Warranty on parts as per manufacturer policy.</li>
-                 <li>Subject to City Jurisdiction only.</li>
-              </ul>
+           {/* LEFT: PAYMENT QR & NEXT SERVICE */}
+           <div className="w-1/2 flex gap-6">
+              <div className="border-2 border-black p-1 inline-block h-fit">
+                  <img src={qrCodeUrl} alt="Payment QR" className="w-24 h-24" />
+                  <p className="text-[10px] text-center font-bold mt-1">SCAN TO PAY</p>
+              </div>
+              
+              {/* 🆕 NEXT SERVICE ADVICE */}
+              <div className="flex flex-col justify-between py-1">
+                  <div>
+                      <h4 className="font-bold text-xs uppercase text-gray-500 mb-1">Bank Details</h4>
+                      <p className="text-xs font-bold">UPI: {WORKSHOP_UPI_ID}</p>
+                      <p className="text-[10px] text-gray-500">GPay / PhonePe / Paytm</p>
+                  </div>
+                  
+                  <div className="border border-blue-200 bg-blue-50 p-2 rounded mt-2">
+                      <h4 className="font-bold text-xs uppercase text-blue-800 mb-1">Next Service Due</h4>
+                      <div className="flex gap-4 text-sm font-bold text-blue-900">
+                          <span>📅 {nextServiceDateString}</span>
+                          <span className="text-gray-400">|</span>
+                          <span>🚗 {nextServiceKm} KM</span>
+                      </div>
+                  </div>
+              </div>
            </div>
 
-           {/* QR CODE (Dynamic) */}
-           <div className="col-span-1 flex flex-col items-center">
-              <img 
-                 src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=upi://pay?pa=${SHOP_CONFIG.upiId}&pn=${encodeURIComponent(SHOP_CONFIG.name)}&am=${grandTotal}&tn=Invoice${job.regNo}`} 
-                 alt="UPI QR"
-                 className="w-24 h-24 border-2 border-black p-1"
-              />
-              <p className="text-[10px] font-bold mt-2">Scan to Pay via UPI</p>
+           {/* RIGHT: MATH */}
+           <div className="w-1/3 space-y-3 text-right">
+              <div className="flex justify-between text-sm"><span>Sub Total:</span><span className="font-bold">₹{subTotal.toFixed(2)}</span></div>
+              <div className="flex justify-between text-sm text-gray-500"><span>CGST (9%):</span><span>₹{cgst.toFixed(2)}</span></div>
+              <div className="flex justify-between text-sm text-gray-500"><span>SGST (9%):</span><span>₹{sgst.toFixed(2)}</span></div>
+              <div className="border-t-2 border-black pt-3 flex justify-between text-2xl font-black text-blue-900 bg-blue-50 p-2 rounded">
+                 <span>TOTAL:</span>
+                 <span>₹{grandTotal.toFixed(2)}</span>
+              </div>
            </div>
+        </div>
 
-           {/* SIGNATURE */}
-           <div className="col-span-1 text-right flex flex-col justify-end">
-              <div className="h-16"></div>
-              <p className="font-bold">{SHOP_CONFIG.name}</p>
-              <p className="text-[10px] text-gray-500">(Authorized Signatory)</p>
+        {/* SIGNATURES */}
+        <div className="flex justify-between items-end mt-16 text-sm">
+           <div className="text-center">
+              <p className="font-bold mb-8">Customer Signature</p>
            </div>
+           <div className="text-center">
+              <p className="font-bold text-blue-900">For {WORKSHOP_NAME}</p>
+              <div className="h-10"></div>
+              <p className="text-xs text-gray-500">Authorized Signatory</p>
+           </div>
+        </div>
+        
+        <div className="absolute bottom-4 left-0 w-full text-center text-[10px] text-gray-400">
+           Thank you for choosing AutoFix! • Safe Driving.
         </div>
 
       </div>
