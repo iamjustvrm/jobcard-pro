@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation'; 
 import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc, setDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut, createUserWithEmailAndPassword, getAuth } from 'firebase/auth'; 
-import { initializeApp, getApp, deleteApp } from 'firebase/app'; // 🛠️ Needed for Shadow App
+import { initializeApp, getApp, deleteApp } from 'firebase/app'; 
 import { db, auth } from '../../firebase';
 
 // 🏷️ COMPATIBILITY TAGS
@@ -16,14 +16,14 @@ export default function AdminPanel() {
   const [loading, setLoading] = useState(true);
   
   // DATA STATES
-  const [activeTab, setActiveTab] = useState('DASHBOARD'); // DASHBOARD | INVENTORY | REPORTS | STAFF
+  const [activeTab, setActiveTab] = useState('DASHBOARD'); 
   const [inventory, setInventory] = useState([]);
   const [jobs, setJobs] = useState([]);
-  const [staffList, setStaffList] = useState([]); // <--- NEW: Staff List
+  const [staffList, setStaffList] = useState([]); 
   
   // FORMS
   const [newItem, setNewItem] = useState({ name: '', category: 'PART', price: '', tags: ['Universal'] });
-  const [newStaff, setNewStaff] = useState({ email: '', password: '', role: 'technician' }); // <--- NEW: Staff Form
+  const [newStaff, setNewStaff] = useState({ email: '', password: '', role: 'technician' }); 
 
   // 1. SECURITY
   useEffect(() => {
@@ -46,7 +46,6 @@ export default function AdminPanel() {
     const qJobs = query(collection(db, "jobs"), orderBy("createdAt", "desc"));
     const unsubJobs = onSnapshot(qJobs, (snap) => setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    // NEW: Sync Users Collection
     const qStaff = query(collection(db, "users"));
     const unsubStaff = onSnapshot(qStaff, (snap) => setStaffList(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
@@ -110,34 +109,25 @@ export default function AdminPanel() {
     link.click();
   };
 
-  // 👮‍♂️ NEW: STAFF CREATION (SHADOW APP TRICK)
+  // 👮‍♂️ STAFF CREATION (SHADOW APP)
   const handleCreateStaff = async (e) => {
     e.preventDefault();
     if(!newStaff.email || !newStaff.password) return alert("Enter Email & Password");
 
     try {
-      // 1. Initialize a "Shadow" App to create user WITHOUT logging out Admin
       const secondaryApp = initializeApp(db.app.options, "Secondary");
       const secondaryAuth = getAuth(secondaryApp);
-
-      // 2. Create the User in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newStaff.email, newStaff.password);
       const uid = userCredential.user.uid;
-
-      // 3. Save Role to Firestore (so the app knows who they are)
       await setDoc(doc(db, "users", uid), {
         email: newStaff.email,
         role: newStaff.role,
         createdAt: serverTimestamp()
       });
-
-      // 4. Clean up
       await signOut(secondaryAuth);
       await deleteApp(secondaryApp);
-
       alert(`✅ Staff Account Created: ${newStaff.email} (${newStaff.role})`);
-      setNewStaff({ email: '', password: '', role: 'technician' }); // Reset form
-
+      setNewStaff({ email: '', password: '', role: 'technician' }); 
     } catch (error) {
       alert("Error creating staff: " + error.message);
     }
@@ -148,25 +138,41 @@ export default function AdminPanel() {
   return (
     <div className="min-h-screen bg-slate-900 text-white font-sans pb-20">
       
-      {/* EXECUTIVE HEADER */}
-      <div className="bg-slate-900 border-b border-amber-600/30 sticky top-0 z-50 p-4 flex justify-between items-center shadow-2xl backdrop-blur-md bg-opacity-90">
-        <div>
-           <h1 className="text-2xl font-black text-amber-500 tracking-widest">MASTER<span className="text-white">ADMIN</span></h1>
-           <p className="text-[10px] text-slate-400">FINANCIAL COMMAND CENTER</p>
-        </div>
-        <div className="flex gap-2">
-           <button onClick={() => setActiveTab('DASHBOARD')} className={`px-4 py-2 rounded text-xs font-bold transition-all ${activeTab === 'DASHBOARD' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white'}`}>📊 OVERVIEW</button>
-           <button onClick={() => setActiveTab('INVENTORY')} className={`px-4 py-2 rounded text-xs font-bold transition-all ${activeTab === 'INVENTORY' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white'}`}>📦 INVENTORY</button>
-           <button onClick={() => setActiveTab('REPORTS')} className={`px-4 py-2 rounded text-xs font-bold transition-all ${activeTab === 'REPORTS' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white'}`}>📂 REPORTS</button>
-           <button onClick={() => setActiveTab('STAFF')} className={`px-4 py-2 rounded text-xs font-bold transition-all ${activeTab === 'STAFF' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white'}`}>👥 STAFF</button>
-        </div>
-        <div className="flex gap-2 items-center">
-           <Link href="/supervisor" className="bg-slate-800 border border-slate-600 hover:bg-slate-700 px-3 py-2 rounded text-[10px] font-bold">⬅ OPERATION FLOOR</Link>
-           <button onClick={handleLogout} className="bg-red-900/20 hover:bg-red-600 text-red-400 hover:text-white px-3 py-2 rounded border border-red-600/30 text-[10px] font-bold">LOGOUT</button>
+      {/* 📱 MOBILE OPTIMIZED HEADER (V34) */}
+      <div className="bg-slate-900 border-b border-amber-600/30 sticky top-0 z-50 p-4 shadow-2xl backdrop-blur-md bg-opacity-95">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
+           
+           {/* Row 1: Logo & Mobile Actions */}
+           <div className="flex justify-between items-center w-full md:w-auto">
+              <div>
+                 <h1 className="text-2xl font-black text-amber-500 tracking-widest">MASTER<span className="text-white">ADMIN</span></h1>
+                 <p className="text-[10px] text-slate-400">FINANCIAL COMMAND CENTER</p>
+              </div>
+              {/* Mobile Logout Button (Visible only on small screens) */}
+              <div className="flex gap-2 md:hidden">
+                  <Link href="/supervisor" className="bg-slate-800 border border-slate-600 px-3 py-2 rounded text-[10px] font-bold">⬅ FLOOR</Link>
+                  <button onClick={handleLogout} className="bg-red-900/20 text-red-400 px-3 py-2 rounded border border-red-600/30 text-[10px] font-bold">LOGOUT</button>
+              </div>
+           </div>
+
+           {/* Row 2: Navigation Tabs (Scrollable on Mobile) */}
+           <div className="flex gap-2 overflow-x-auto pb-1 md:pb-0 whitespace-nowrap scrollbar-hide w-full md:w-auto">
+              <button onClick={() => setActiveTab('DASHBOARD')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'DASHBOARD' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>📊 OVERVIEW</button>
+              <button onClick={() => setActiveTab('INVENTORY')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'INVENTORY' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>📦 INVENTORY</button>
+              <button onClick={() => setActiveTab('REPORTS')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'REPORTS' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>📂 REPORTS</button>
+              <button onClick={() => setActiveTab('STAFF')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'STAFF' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>👥 STAFF</button>
+              <button onClick={() => setActiveTab('CRM')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'CRM' ? 'bg-green-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>📞 CRM</button>
+           </div>
+
+           {/* Desktop Actions (Hidden on Mobile) */}
+           <div className="hidden md:flex gap-2 items-center">
+              <Link href="/supervisor" className="bg-slate-800 border border-slate-600 hover:bg-slate-700 px-3 py-2 rounded text-[10px] font-bold">⬅ OPERATION FLOOR</Link>
+              <button onClick={handleLogout} className="bg-red-900/20 hover:bg-red-600 text-red-400 hover:text-white px-3 py-2 rounded border border-red-600/30 text-[10px] font-bold">LOGOUT</button>
+           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto p-6">
+      <div className="max-w-7xl mx-auto p-4 md:p-6">
         
         {/* ================= TAB 1: FINANCIAL COCKPIT ================= */}
         {activeTab === 'DASHBOARD' && (
@@ -218,7 +224,7 @@ export default function AdminPanel() {
            </div>
         )}
 
-        {/* ================= TAB 4: STAFF MANAGEMENT (NEW V3) ================= */}
+        {/* ================= TAB 4: STAFF MANAGEMENT ================= */}
         {activeTab === 'STAFF' && (
            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Create User Form */}
@@ -246,6 +252,15 @@ export default function AdminPanel() {
                     {staffList.length === 0 && <div className="text-slate-500 italic">No staff records found.</div>}
                  </div>
               </div>
+           </div>
+        )}
+
+        {/* ================= TAB 5: CRM (Placeholder) ================= */}
+        {activeTab === 'CRM' && (
+           <div className="bg-slate-800 rounded-2xl border border-slate-700 p-10 text-center space-y-6">
+              <div className="text-6xl">📞</div>
+              <h2 className="text-2xl font-black text-white">CRM Module Loading...</h2>
+              <p className="text-slate-400">Ready to initiate Customer Retention protocols.</p>
            </div>
         )}
 
