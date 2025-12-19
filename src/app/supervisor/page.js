@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation'; 
-import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc, getDoc } from 'firebase/firestore'; 
+import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc, getDoc, getDocs } from 'firebase/firestore'; 
 import { onAuthStateChanged, signOut } from 'firebase/auth'; 
 import { db, auth } from '../../firebase';
 
@@ -39,6 +39,7 @@ export default function SupervisorDashboard() {
   const [activeTab, setActiveTab] = useState('DASHBOARD'); 
   const [jobs, setJobs] = useState([]);
   const [inventoryDB, setInventoryDB] = useState([]); 
+  const [obdDB, setObdDB] = useState([]); 
   const [selectedJobId, setSelectedJobId] = useState(null); 
   const [isEditing, setIsEditing] = useState(false); 
   
@@ -52,12 +53,9 @@ export default function SupervisorDashboard() {
     usageProfile: 'MEDIUM',
     inventory: {}, warningLights: {}, bodyDamages: {}, 
     supervisorObs: '', 
-    // EXISTING FIELDS (Kept safe)
     customerImages: '', voiceNoteLink: '', obdScanReport: '', 
-    // 🆕 NEW ATTACHMENT FIELDS
-    inspectionPhotos: [], // Array of Base64 strings
-    obdAttachments: [],   // Array of Base64 strings
-    
+    inspectionPhotos: [], 
+    obdAttachments: [],   
     testDriveReport: '', promisedDelivery: '', complaints: '', technicianName: '', 
     blocks: [
       { name: 'Mechanical', status: 'PENDING', steps: [] },
@@ -71,8 +69,6 @@ export default function SupervisorDashboard() {
   const [newTaskInput, setNewTaskInput] = useState({ mech: '', elec: '' });
   const [newItem, setNewItem] = useState({ category: 'PART', desc: '', qty: 1, price: 0 });
   const [customLightInput, setCustomLightInput] = useState("");
-  
-  // 🆕 LOADING STATE FOR UPLOADS
   const [isUploading, setIsUploading] = useState(false);
 
   // 1. SECURITY
@@ -97,7 +93,7 @@ export default function SupervisorDashboard() {
     return () => unsubscribe();
   }, [router]);
 
-  // 2. LIVE DATA SYNC
+  // 2. LIVE DATA SYNC 
   useEffect(() => {
     const q = query(collection(db, "jobs"), orderBy("createdAt", "desc"));
     const unsub = onSnapshot(q, (snapshot) => {
@@ -114,6 +110,14 @@ export default function SupervisorDashboard() {
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    const fetchOBD = async () => {
+      const snap = await getDocs(collection(db, "obd_library"));
+      setObdDB(snap.docs.map(d => d.data()));
+    };
+    fetchOBD();
+  }, []);
+
   const handleLogout = async () => { await signOut(auth); router.push('/'); };
 
   // TAT MONITOR
@@ -121,18 +125,27 @@ export default function SupervisorDashboard() {
     if (!promisedTime) return { color: "text-slate-400", label: "No Deadline" };
     let due = new Date(promisedTime);
     const now = new Date();
+    
+    // Handle old time-only format "17:30" compatibility
     if (isNaN(due.getTime()) && promisedTime.includes(':')) {
        const [h, m] = promisedTime.split(':');
        due = new Date();
        due.setHours(h, m, 0);
     }
+    
     if (isNaN(due.getTime())) return { color: "text-slate-400", label: "Invalid Time" };
+    
     const diffMs = due - now;
     const diffHrs = Math.floor(diffMs / 3600000);
     const diffMins = Math.floor((diffMs % 3600000) / 60000);
+    
+    // Format Date for Display
+    const dateStr = due.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    const timeStr = due.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+
     if (diffMs < 0) return { color: "text-red-500 animate-pulse font-black", label: `OVERDUE (+${Math.abs(diffHrs)}h)` };
     if (diffHrs < 1) return { color: "text-yellow-500 font-bold", label: `Urgent (${diffMins}m left)` };
-    return { color: "text-green-500 font-bold", label: `On Track (${diffHrs}h left)` };
+    return { color: "text-green-500 font-bold", label: `Due ${dateStr}, ${timeStr}` };
   };
 
   const getCardStyle = (job) => {
@@ -160,12 +173,10 @@ export default function SupervisorDashboard() {
     setFormData(p => ({ ...p, bodyDamages: { ...p.bodyDamages, [panel]: newDamages } }));
   };
 
-  // 🆕 IMAGE COMPRESSION & UPLOAD HANDLER
   const handleSmartAttachment = (e, field) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
     setIsUploading(true);
-
     const promises = files.map(file => {
         return new Promise((resolve) => {
             const reader = new FileReader();
@@ -174,29 +185,21 @@ export default function SupervisorDashboard() {
                 const img = new Image();
                 img.src = event.target.result;
                 img.onload = () => {
-                    // Create Canvas for Compression
                     const canvas = document.createElement('canvas');
-                    const MAX_WIDTH = 800; // Shrink to 800px width
+                    const MAX_WIDTH = 800; 
                     const scaleSize = MAX_WIDTH / img.width;
                     canvas.width = MAX_WIDTH;
                     canvas.height = img.height * scaleSize;
-                    
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    
-                    // Compress to JPEG 60% Quality
                     const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
                     resolve(compressedBase64);
                 }
             }
         });
     });
-
     Promise.all(promises).then(base64Images => {
-        setFormData(prev => ({
-            ...prev,
-            [field]: [...(prev[field] || []), ...base64Images]
-        }));
+        setFormData(prev => ({ ...prev, [field]: [...(prev[field] || []), ...base64Images] }));
         setIsUploading(false);
     });
   };
@@ -209,15 +212,35 @@ export default function SupervisorDashboard() {
   const generateAIWorkPlan = () => {
     const inputText = (formData.complaints + " " + formData.supervisorObs + " " + formData.obdScanReport).toLowerCase();
     const suggestedTasks = [];
+    const detectedCodes = [];
+
     AI_RULES.forEach(rule => {
       if (rule.keywords.some(k => inputText.includes(k))) suggestedTasks.push(...rule.tasks);
     });
+
+    const obdMatches = inputText.match(/p[0-9]{4}/g);
+    if (obdMatches && obdDB.length > 0) {
+       obdMatches.forEach(code => {
+          const found = obdDB.find(entry => entry.code === code.toUpperCase());
+          if (found) {
+             detectedCodes.push(found.code);
+             if(found.diagnostic_steps) suggestedTasks.push(...found.diagnostic_steps.map(s => `[${found.code}] ${s}`));
+          }
+       });
+    }
+
     if (suggestedTasks.length === 0) { alert("ℹ️ AI: No specific patterns matched."); return; }
+
     const updatedBlocks = [...formData.blocks];
     const uniqueTasks = [...new Set([...updatedBlocks[0].steps, ...suggestedTasks])];
     updatedBlocks[0].steps = uniqueTasks;
     setFormData(prev => ({ ...prev, blocks: updatedBlocks }));
-    alert(`✨ AI predicted ${suggestedTasks.length} tasks!`);
+
+    if (detectedCodes.length > 0) {
+       alert(`🧠 AI DETECTED OBD CODES: ${detectedCodes.join(", ")}\n\nAdded specialized diagnostic steps from your library.`);
+    } else {
+       alert(`✨ AI predicted ${suggestedTasks.length} tasks based on symptoms!`);
+    }
   };
 
   const addTask = (type) => {
@@ -316,7 +339,7 @@ export default function SupervisorDashboard() {
     <div className="min-h-screen bg-slate-900 text-white font-sans pb-20 print:bg-white print:text-black">
       {/* NAVBAR */}
       <div className="print:hidden bg-slate-800 border-b border-slate-700 sticky top-0 z-50 shadow-xl p-4 flex justify-between items-center">
-        <h1 className="text-xl md:text-2xl font-black text-blue-500">JOB<span className="text-white">CARD</span> <span className="text-xs text-slate-500">V49 ATTACHMENTS</span></h1>
+        <h1 className="text-xl md:text-2xl font-black text-blue-500">JOB<span className="text-white">CARD</span> <span className="text-xs text-slate-500">V51 DATE+TIME</span></h1>
         <div className="flex gap-4 items-center">
            <div className="flex bg-slate-900 rounded-lg p-1">
               <button onClick={() => {setActiveTab('DASHBOARD'); setSelectedJobId(null); setIsEditing(false)}} className={`px-4 py-1 rounded text-xs md:text-sm font-bold transition-all ${activeTab === 'DASHBOARD' ? 'bg-blue-600 shadow' : 'text-slate-400'}`}>📡 Fleet</button>
@@ -358,7 +381,11 @@ export default function SupervisorDashboard() {
                 <div className="grid grid-cols-2 gap-4"><input required type="number" placeholder="Odometer" className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.odometer} onChange={e => updateForm('odometer', e.target.value)} /><select className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.serviceType} onChange={e => updateForm('serviceType', e.target.value)}>{SERVICE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
                 <div className="grid grid-cols-2 gap-4 border-t border-slate-700 pt-4 mt-2"><input placeholder="VIN" className="bg-slate-900 border border-slate-600 rounded-lg p-4 uppercase" value={formData.vin} onChange={e => updateForm('vin', e.target.value)} /><input placeholder="Engine No" className="bg-slate-900 border border-slate-600 rounded-lg p-4 uppercase" value={formData.engineNo} onChange={e => updateForm('engineNo', e.target.value)} /></div>
                 <div className="bg-blue-900/20 border border-blue-500/30 p-4 rounded-xl mt-2"><label className="text-xs font-bold text-blue-400 uppercase mb-2 block">🚙 Vehicle Lifestyle</label><select className="w-full bg-slate-900 border border-slate-600 rounded-lg p-4 font-bold text-white" value={formData.usageProfile} onChange={e => updateForm('usageProfile', e.target.value)}>{USAGE_PROFILES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</select></div>
-                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700"><label className="text-xs font-bold text-blue-400 uppercase mb-2 block">⏰ Promised Delivery Time</label><input type="time" className="bg-slate-800 border border-slate-600 rounded p-4 text-white font-bold" value={formData.promisedDelivery} onChange={e => updateForm('promisedDelivery', e.target.value)} /></div>
+                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700">
+                    <label className="text-xs font-bold text-blue-400 uppercase mb-2 block">⏰ Promised Delivery Date & Time</label>
+                    {/* ✅ UPDATED: DATETIME-LOCAL FOR FULL CONTROL */}
+                    <input type="datetime-local" className="bg-slate-800 border border-slate-600 rounded p-4 text-white font-bold w-full" value={formData.promisedDelivery} onChange={e => updateForm('promisedDelivery', e.target.value)} />
+                </div>
               </div>
               
               {/* 3. DISPUTE SHIELD */}
@@ -366,61 +393,33 @@ export default function SupervisorDashboard() {
                 <div className="flex justify-between items-center border-b border-slate-700 pb-2"><h3 className="text-sm font-bold text-red-400 uppercase tracking-wider">3. Dispute Shield</h3></div>
                 <div><label className="text-xs font-bold text-slate-500 mb-4 block">FUEL LEVEL</label><input type="range" min="0" max="100" step="25" className="w-full h-2 bg-slate-700 rounded-lg accent-yellow-400" value={formData.fuelLevel} onChange={e => updateForm('fuelLevel', e.target.value)} /><div className="flex justify-between text-xs text-slate-400 mt-2 font-mono"><span>E</span><span>25</span><span>50</span><span>75</span><span>F</span></div></div>
                 <div><label className="text-xs font-bold text-slate-500 mb-2 block">TYRE CONDITION</label><div className="flex gap-4">{['OK', 'WORN', 'CRITICAL'].map(status => <button key={status} type="button" onClick={() => setFormData({...formData, tyreCondition: status})} className={`flex-1 py-3 rounded-lg text-xs font-bold border-2 transition-all ${formData.tyreCondition === status ? (status === 'OK' ? 'bg-green-600 border-green-500 text-white' : 'bg-red-600 border-red-500 text-white') : 'bg-slate-800 border-slate-600 text-slate-400'}`}>{status}</button>)}</div></div>
-                <div><label className="text-xs font-bold text-slate-500 mb-2 block">WARNING LIGHTS</label><div className="flex flex-wrap gap-2 mb-2">{[...WARNING_LIGHTS, ...Object.keys(formData.warningLights).filter(k => !WARNING_LIGHTS.includes(k) && formData.warningLights[k])].map(light => (<button key={light} type="button" onClick={() => toggleWarningLight(light)} className={`px-4 py-2 rounded-full text-xs font-bold border transition-all ${formData.warningLights[light] ? 'bg-red-900/80 border-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-slate-800 border-slate-600 text-slate-500'}`}>{light}</button>))}</div><div className="flex gap-2"><input placeholder="Add Other (e.g. Glow Plug)..." className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-xs text-white flex-grow" value={customLightInput} onChange={e => setCustomLightInput(e.target.value)} /><button type="button" onClick={addCustomWarningLight} className="bg-blue-600 px-4 rounded text-xs font-bold text-white hover:bg-blue-500">+ ADD</button></div></div>
+                <div>
+                    <label className="text-xs font-bold text-slate-500 mb-2 block">WARNING LIGHTS</label>
+                    <div className="flex flex-wrap gap-2 mb-2">{[...WARNING_LIGHTS, ...Object.keys(formData.warningLights).filter(k => !WARNING_LIGHTS.includes(k) && formData.warningLights[k])].map(light => (<button key={light} type="button" onClick={() => toggleWarningLight(light)} className={`px-4 py-2 rounded-full text-xs font-bold border transition-all ${formData.warningLights[light] ? 'bg-red-900/80 border-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-slate-800 border-slate-600 text-slate-500'}`}>{light}</button>))}</div>
+                    <div className="flex gap-2"><input placeholder="Add Other (e.g. Glow Plug)..." className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-xs text-white flex-grow" value={customLightInput} onChange={e => setCustomLightInput(e.target.value)} /><button type="button" onClick={addCustomWarningLight} className="bg-blue-600 px-4 rounded text-xs font-bold text-white hover:bg-blue-500">+ ADD</button></div>
+                </div>
                 <div className="grid grid-cols-2 gap-3">{INVENTORY_ITEMS.map(item => <div key={item} onClick={() => toggleInventory(item)} className={`cursor-pointer p-4 rounded-lg border-2 flex items-center justify-between transition-all ${formData.inventory[item] ? 'bg-blue-900/30 border-blue-500' : 'bg-slate-800 border-slate-700'}`}><span className={`text-xs font-bold uppercase ${formData.inventory[item] ? 'text-blue-300' : 'text-slate-500'}`}>{item}</span>{formData.inventory[item] && <span className="text-blue-500">✓</span>}</div>)}</div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">{BODY_PANELS.map(panel => <div key={panel} className="bg-slate-800 p-2 rounded border border-slate-700"><div className="text-[10px] font-bold text-slate-400 uppercase mb-1">{panel}</div><div className="flex gap-1">{['S', 'D', 'C'].map(code => {const type = code === 'S' ? 'Scratch' : code === 'D' ? 'Dent' : 'Crack'; return (<button key={type} type="button" onClick={() => toggleBodyDamage(panel, type)} className={`flex-1 text-[9px] py-1 rounded border ${formData.bodyDamages[panel]?.includes(type) ? 'bg-red-600 text-white' : 'bg-slate-900 text-slate-600'}`}>{code}</button>);})}</div></div>)}</div>
               </div>
               
-              {/* 4. INSPECTION & MEDIA (UPGRADED WITH UPLOAD) */}
+              {/* 4. INSPECTION & MEDIA */}
               <div className="space-y-4 pt-4 border-t border-slate-700">
                  <h3 className="text-xl font-black text-white bg-blue-600 p-3 rounded-lg text-center shadow-lg">📸 SUPERVISOR INSPECTION & PHOTOS</h3>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2"><label className="text-xs font-bold text-blue-400 uppercase">PRE-SERVICE INSPECTION REPORT</label><textarea placeholder="Type technical observations..." className="w-full bg-slate-900 border-2 border-blue-500/50 rounded-xl p-4 h-32 text-sm" value={formData.supervisorObs} onChange={e => updateForm('supervisorObs', e.target.value)} /></div>
-                    
                     <div className="space-y-4">
-                       {/* GOOGLE LINK (PRESERVED) */}
                        <div><label className="text-xs font-bold text-blue-400 uppercase">PHOTOS LINK (Optional)</label><input placeholder="Google Photos Link..." className="w-full bg-slate-900 border-2 border-slate-600 rounded-xl p-4 text-sm" value={formData.customerImages} onChange={e => updateForm('customerImages', e.target.value)} /></div>
-                       
-                       {/* 🆕 DIRECT UPLOAD: INSPECTION PHOTOS */}
                        <div className="bg-slate-900 border-2 border-dashed border-slate-600 p-4 rounded-xl">
-                          <label className="text-xs font-bold text-blue-400 uppercase mb-2 flex justify-between">
-                             <span>ATTACH PHOTOS (CAMERA/GALLERY)</span>
-                             {isUploading && <span className="text-yellow-400 animate-pulse">Compressing...</span>}
-                          </label>
+                          <label className="text-xs font-bold text-blue-400 uppercase mb-2 flex justify-between"><span>ATTACH PHOTOS (CAMERA/GALLERY)</span>{isUploading && <span className="text-yellow-400 animate-pulse">Compressing...</span>}</label>
                           <input type="file" multiple accept="image/*" onChange={(e) => handleSmartAttachment(e, 'inspectionPhotos')} className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500 mb-3"/>
-                          
-                          {/* PREVIEW GRID */}
-                          {formData.inspectionPhotos?.length > 0 && (
-                            <div className="flex gap-2 overflow-x-auto pb-2">
-                               {formData.inspectionPhotos.map((img, i) => (
-                                 <div key={i} className="relative min-w-[60px] h-[60px]">
-                                   <img src={img} className="w-full h-full object-cover rounded border border-slate-500" />
-                                   <button type="button" onClick={() => removeAttachment(i, 'inspectionPhotos')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">×</button>
-                                 </div>
-                               ))}
-                            </div>
-                          )}
+                          {formData.inspectionPhotos?.length > 0 && (<div className="flex gap-2 overflow-x-auto pb-2">{formData.inspectionPhotos.map((img, i) => (<div key={i} className="relative min-w-[60px] h-[60px]"><img src={img} className="w-full h-full object-cover rounded border border-slate-500" /><button type="button" onClick={() => removeAttachment(i, 'inspectionPhotos')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">×</button></div>))}</div>)}
                        </div>
-
-                       {/* 🆕 DIRECT UPLOAD: OBD SCAN */}
                        <div className="bg-slate-900 border-2 border-dashed border-slate-600 p-4 rounded-xl">
                           <label className="text-xs font-bold text-yellow-400 uppercase mb-2 block">OBD / SCANNER REPORT (ATTACH)</label>
-                          <input placeholder="Or type codes..." className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-xs mb-2 font-mono text-yellow-400" value={formData.obdScanReport} onChange={e => updateForm('obdScanReport', e.target.value)} />
+                          <input placeholder="Or type codes... (e.g. P0300, P0171)" className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-xs mb-2 font-mono text-yellow-400" value={formData.obdScanReport} onChange={e => updateForm('obdScanReport', e.target.value)} />
                           <input type="file" accept="image/*" onChange={(e) => handleSmartAttachment(e, 'obdAttachments')} className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-yellow-600 file:text-black hover:file:bg-yellow-500"/>
-                          
-                          {/* OBD PREVIEW */}
-                          {formData.obdAttachments?.length > 0 && (
-                            <div className="flex gap-2 mt-2">
-                               {formData.obdAttachments.map((img, i) => (
-                                 <div key={i} className="relative min-w-[60px] h-[60px]">
-                                   <img src={img} className="w-full h-full object-cover rounded border border-yellow-500" />
-                                   <button type="button" onClick={() => removeAttachment(i, 'obdAttachments')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">×</button>
-                                 </div>
-                               ))}
-                            </div>
-                          )}
+                          {formData.obdAttachments?.length > 0 && (<div className="flex gap-2 mt-2">{formData.obdAttachments.map((img, i) => (<div key={i} className="relative min-w-[60px] h-[60px]"><img src={img} className="w-full h-full object-cover rounded border border-yellow-500" /><button type="button" onClick={() => removeAttachment(i, 'obdAttachments')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">×</button></div>))}</div>)}
                        </div>
-
                     </div>
                  </div>
               </div>
@@ -429,7 +428,7 @@ export default function SupervisorDashboard() {
               <div className="space-y-4 pt-4 border-t border-slate-700">
                 <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider">5. Work Scope & AI</h3>
                 <textarea required placeholder="Customer Complaints..." className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 h-20 text-xs" value={formData.complaints} onChange={e => updateForm('complaints', e.target.value)} />
-                <button type="button" onClick={generateAIWorkPlan} className="w-full bg-gradient-to-r from-purple-700 to-blue-700 hover:from-purple-600 hover:to-blue-600 text-white p-3 rounded-xl font-bold shadow-lg flex justify-center items-center gap-2">✨ CLICK TO AUTO-GENERATE TASKS (AI)</button>
+                <button type="button" onClick={generateAIWorkPlan} className="w-full bg-gradient-to-r from-purple-700 to-blue-700 hover:from-purple-600 hover:to-blue-600 text-white p-3 rounded-xl font-bold shadow-lg flex justify-center items-center gap-2">✨ CLICK TO AUTO-GENERATE TASKS (AI + OBD)</button>
                 <div className="bg-slate-900 p-4 rounded-xl border border-slate-700">
                   <div className="flex justify-between items-center mb-2"><span className="font-bold text-xs text-slate-400 uppercase">Mechanical Tasks</span></div>
                   <div className="flex gap-2 mb-2"><input placeholder="Add Manual Task..." className="flex-grow bg-slate-800 rounded p-2 text-xs" value={newTaskInput.mech} onChange={e => setNewTaskInput({...newTaskInput, mech: e.target.value})} /><button type="button" onClick={() => addTask('mech')} className="bg-orange-600 px-3 rounded font-bold text-xs">+</button></div>
@@ -604,7 +603,7 @@ export default function SupervisorDashboard() {
                        <h3 className="font-bold uppercase mb-2 text-lg underline">Inspection & Obs</h3>
                        <p className="mb-2"><strong>Supervisor Notes:</strong> {job.supervisorObs || 'None'}</p>
                        <div className="grid grid-cols-3 gap-2"><p><strong>Fuel:</strong> {job.fuelLevel}%</p><p><strong>Tyres:</strong> {job.tyreCondition}</p><p><strong>Warning Lights:</strong> {Object.keys(job.warningLights || {}).filter(k=>job.warningLights[k]).join(', ') || 'None'}</p></div>
-                       {/* 🆕 SHOW ATTACHMENTS ON PRINT IF ANY */}
+                       {/* SHOW ATTACHMENTS ON PRINT */}
                        {(job.inspectionPhotos?.length > 0 || job.obdAttachments?.length > 0) && (
                          <div className="mt-2 text-xs">
                            <strong>Attachments:</strong> {job.inspectionPhotos?.length} Photos, {job.obdAttachments?.length} OBD Reports attached digitally.

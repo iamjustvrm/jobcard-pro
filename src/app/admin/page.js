@@ -1,327 +1,523 @@
 "use client";
-import Link from 'next/link';
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation'; 
-import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc, setDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signOut, createUserWithEmailAndPassword, getAuth } from 'firebase/auth'; 
-import { initializeApp, getApp, deleteApp } from 'firebase/app'; 
+import { useRouter } from 'next/navigation';
+import { collection, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc, addDoc } from 'firebase/firestore'; 
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { db, auth } from '../../firebase';
 
-// 🏷️ COMPATIBILITY TAGS
-const VEHICLE_TAGS = ["Universal", "Hatchback", "Sedan", "SUV", "Luxury", "Petrol", "Diesel", "EV"];
-
-export default function AdminPanel() {
-  const router = useRouter(); 
-  const [user, setUser] = useState(null); 
+export default function AdminDashboard() {
+  const router = useRouter();
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // DATA STATES
-  const [activeTab, setActiveTab] = useState('DASHBOARD'); 
-  const [inventory, setInventory] = useState([]);
+  // --- THEME STATE (Default: Dark 'Glory') ---
+  const [darkMode, setDarkMode] = useState(true);
+
+  // --- DATA STATES ---
   const [jobs, setJobs] = useState([]);
-  const [staffList, setStaffList] = useState([]); 
+  const [inventory, setInventory] = useState([]);
+  const [usersList, setUsersList] = useState([]);
+  const [activeTab, setActiveTab] = useState('DASHBOARD'); // DASHBOARD | TEAM | JOBS | INVENTORY | USERS | REPORTS
   
-  // FORMS
-  const [newItem, setNewItem] = useState({ name: '', category: 'PART', price: '', tags: ['Universal'] });
-  const [newStaff, setNewStaff] = useState({ email: '', password: '', role: 'technician' }); 
+  // --- UI STATES ---
+  const [selectedJob, setSelectedJob] = useState(null); 
+  const [jobDetailTab, setJobDetailTab] = useState('INFO'); // INFO | TASKS | FINANCE | LOGS
+  const [commissionRate, setCommissionRate] = useState(5); 
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // --- FORMS ---
+  const [newItem, setNewItem] = useState({ name: '', price: '', stock: '', category: 'General' });
+  const [newUser, setNewUser] = useState({ email: '', password: 'password123', role: 'technician', name: '' });
 
   // 1. SECURITY
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (!currentUser || !currentUser.email.includes('admin')) {
-        router.push('/');
-      } else {
-        setUser(currentUser);
-        setLoading(false);
-      }
+      if (!currentUser) router.push('/');
+      else { setUser(currentUser); setLoading(false); }
     });
     return () => unsubscribe();
   }, [router]);
 
-  // 2. LIVE SYNC
+  // 2. LIVE DATA SYNC
   useEffect(() => {
-    const qInv = query(collection(db, "inventory"), orderBy("createdAt", "desc"));
-    const unsubInv = onSnapshot(qInv, (snap) => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    
     const qJobs = query(collection(db, "jobs"), orderBy("createdAt", "desc"));
     const unsubJobs = onSnapshot(qJobs, (snap) => setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    const qStaff = query(collection(db, "users"));
-    const unsubStaff = onSnapshot(qStaff, (snap) => setStaffList(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const qInv = query(collection(db, "inventory"), orderBy("name", "asc"));
+    const unsubInv = onSnapshot(qInv, (snap) => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    return () => { unsubInv(); unsubJobs(); unsubStaff(); };
+    const qUsers = query(collection(db, "users"));
+    const unsubUsers = onSnapshot(qUsers, (snap) => setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+
+    return () => { unsubJobs(); unsubInv(); unsubUsers(); };
   }, []);
 
-  // --- ANALYTICS ENGINE ---
-  const calculateMetrics = () => {
-    let totalRevenue = 0;
-    let totalParts = 0;
-    let totalLabor = 0;
-    const techPerformance = {};
-    jobs.forEach(job => {
-      const jobParts = job.parts?.reduce((a,b)=>a+b.total,0) || 0;
-      const jobLabor = job.labor?.reduce((a,b)=>a+b.total,0) || 0;
-      const jobTotal = jobParts + jobLabor;
-      totalRevenue += jobTotal;
-      totalParts += jobParts;
-      totalLabor += jobLabor;
-      const tech = job.technicianName || 'Unassigned';
-      if(!techPerformance[tech]) techPerformance[tech] = { jobs: 0, revenue: 0 };
-      techPerformance[tech].jobs += 1;
-      techPerformance[tech].revenue += jobTotal;
-    });
-    return { totalRevenue, totalParts, totalLabor, techPerformance, jobCount: jobs.length };
-  };
-  const metrics = calculateMetrics();
-
-  // --- CRM ENGINE (NEW V36) ---
-  const getDueCustomers = () => {
-     const uniqueCustomers = {};
-     const sixMonthsAgo = new Date();
-     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6); // Threshold Date
-
-     // Iterate jobs (which are ordered by Latest First)
-     jobs.forEach(job => {
-        const phone = job.customerPhone?.replace(/\D/g, '').slice(-10);
-        if(!phone) return;
-
-        // Since jobs are desc, the first time we see a phone, it is the LATEST visit
-        if (!uniqueCustomers[phone]) {
-           const jobDate = job.createdAt ? new Date(job.createdAt.seconds * 1000) : new Date();
-           uniqueCustomers[phone] = {
-              name: job.customerName,
-              phone: phone, // Clean phone
-              originalPhone: job.customerPhone,
-              lastCar: job.model,
-              regNo: job.regNo, // Store latest Reg No
-              lastDate: jobDate,
-              daysAgo: Math.floor((new Date() - jobDate) / (1000 * 60 * 60 * 24)),
-              isDue: jobDate < sixMonthsAgo
-           };
-        }
-     });
-
-     // Return only those who are due
-     return Object.values(uniqueCustomers).filter(c => c.isDue).sort((a,b) => b.daysAgo - a.daysAgo);
-  };
-  
-  const dueList = getDueCustomers();
-
-  const sendReminder = (c) => {
-    const msg = `Hello ${c.name}, gentle reminder from JobCard Pro!\n\nYour ${c.lastCar} (${c.regNo}) visited us ${c.daysAgo} days ago. It is time for a General Service check-up to ensure smooth performance.\n\nReply YES to book a slot!`;
-    window.open(`https://wa.me/91${c.phone}?text=${encodeURIComponent(msg)}`, '_blank');
-  };
-
-  // --- HANDLERS ---
-  const handleAddItem = async (e) => {
-    e.preventDefault();
-    if(!newItem.name || !newItem.price) return alert("Fill all fields!");
-    await addDoc(collection(db, "inventory"), { ...newItem, price: Number(newItem.price), createdAt: serverTimestamp() });
-    setNewItem({ name: '', category: 'PART', price: '', tags: ['Universal'] });
-    alert("✅ Item Added!");
-  };
-
-  const deleteItem = async (id) => { if(confirm("Remove?")) await deleteDoc(doc(db, "inventory", id)); };
   const handleLogout = async () => { await signOut(auth); router.push('/'); };
 
-  const toggleTag = (tag) => {
-    setNewItem(prev => {
-      const newTags = prev.tags.includes(tag) ? prev.tags.filter(t => t !== tag) : [...prev.tags, tag];
-      return { ...prev, tags: newTags };
-    });
+  // --- ANALYTICS ENGINE ---
+  const calculateFinancials = () => {
+      let totalParts = 0;
+      let totalLabor = 0;
+      let totalRevenue = 0;
+      
+      jobs.forEach(job => {
+          const p = Array.isArray(job.parts) ? job.parts.reduce((a, b) => a + (Number(b.total) || 0), 0) : 0;
+          const l = Array.isArray(job.labor) ? job.labor.reduce((a, b) => a + (Number(b.total) || 0), 0) : 0;
+          totalParts += p;
+          totalLabor += l;
+          totalRevenue += (p + l);
+      });
+      return { totalParts, totalLabor, totalRevenue };
   };
 
-  const downloadCSV = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Date,RegNo,Model,Customer,Phone,Technician,TotalAmount\n"; 
+  const financials = calculateFinancials();
+
+  const getTeamStats = () => {
+    const stats = {};
     jobs.forEach(job => {
-      const total = (job.parts?.reduce((a,b)=>a+b.total,0)||0) + (job.labor?.reduce((a,b)=>a+b.total,0)||0);
-      const date = new Date(job.createdAt?.seconds * 1000).toLocaleDateString();
-      csvContent += `${date},${job.regNo},${job.model},${job.customerName},${job.customerPhone},${job.technicianName},${total}\n`;
+        const tech = job.technicianName || 'Unassigned';
+        if(!stats[tech]) stats[tech] = { name: tech, jobsCount: 0, activeNow: null, laborRevenue: 0, status: 'IDLE' };
+        
+        // Use labor total for revenue or total job value depending on policy. Using Total for Leaderboard visual.
+        const jobTotal = (Array.isArray(job.parts) ? job.parts.reduce((a,b)=>a+(Number(b.total)||0),0) : 0) + 
+                         (Array.isArray(job.labor) ? job.labor.reduce((a,b)=>a+(Number(b.total)||0),0) : 0);
+
+        if(job.status === 'READY' || job.status === 'DELIVERED') {
+            stats[tech].jobsCount += 1;
+            stats[tech].laborRevenue += jobTotal; 
+        }
+        if(job.status === 'WORK_IN_PROGRESS') {
+            stats[tech].activeNow = job.regNo;
+            stats[tech].status = 'WORKING';
+        } else if (job.status === 'WORK_PAUSED') {
+            stats[tech].activeNow = `${job.regNo} (Paused)`;
+            stats[tech].status = 'PAUSED';
+        }
     });
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `workshop_report_${new Date().toISOString().slice(0,10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
+    return Object.values(stats).filter(s => s.name !== 'Unassigned').sort((a,b) => b.laborRevenue - a.laborRevenue);
+  };
+  const teamStats = getTeamStats();
+
+  // --- DOWNLOAD ENGINE ---
+  const downloadReport = (type) => {
+      const headers = ["Job ID", "Date", "Customer", "Phone", "Reg No", "Model", "Tech", "Status", "Parts Total", "Labor Total", "Grand Total", "Supervisor Notes"];
+      const rows = jobs.map(job => {
+          const pTotal = job.parts?.reduce((a,b)=>a+(Number(b.total)||0),0) || 0;
+          const lTotal = job.labor?.reduce((a,b)=>a+(Number(b.total)||0),0) || 0;
+          const dateStr = job.createdAt?.seconds ? new Date(job.createdAt.seconds * 1000).toLocaleDateString() : 'N/A';
+          const safe = (txt) => `"${(txt || '').toString().replace(/"/g, '""')}"`;
+          return [job.id, dateStr, safe(job.customerName), job.customerPhone, job.regNo, job.model, job.technicianName, job.status, pTotal, lTotal, pTotal+lTotal, safe(job.supervisorObs)].join(",");
+      });
+
+      if (type === 'PDF') { window.print(); return; }
+
+      const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + rows.join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `JOB_AUDIT_REPORT_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
   };
 
-  // 👮‍♂️ STAFF CREATION (SHADOW APP)
-  const handleCreateStaff = async (e) => {
-    e.preventDefault();
-    if(!newStaff.email || !newStaff.password) return alert("Enter Email & Password");
-    try {
-      const secondaryApp = initializeApp(db.app.options, "Secondary");
-      const secondaryAuth = getAuth(secondaryApp);
-      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newStaff.email, newStaff.password);
-      const uid = userCredential.user.uid;
-      await setDoc(doc(db, "users", uid), { email: newStaff.email, role: newStaff.role, createdAt: serverTimestamp() });
-      await signOut(secondaryAuth);
-      await deleteApp(secondaryApp);
-      alert(`✅ Staff Account Created: ${newStaff.email} (${newStaff.role})`);
-      setNewStaff({ email: '', password: '', role: 'technician' }); 
-    } catch (error) {
-      alert("Error creating staff: " + error.message);
-    }
+  // --- ACTIONS ---
+  const handleAddItem = async () => {
+    if(!newItem.name || !newItem.price) return alert("Details Required!");
+    await addDoc(collection(db, "inventory"), { ...newItem, price: Number(newItem.price), stock: Number(newItem.stock) });
+    setNewItem({ name: '', price: '', stock: '', category: 'General' });
+  };
+  const handleDeleteItem = async (id) => { if(confirm("Delete?")) await deleteDoc(doc(db, "inventory", id)); };
+  
+  const handleCreateUser = async () => {
+      if(!newUser.email) return;
+      await addDoc(collection(db, "users"), newUser); 
+      alert(`User ${newUser.name} Added!`);
+      setNewUser({ email: '', password: 'password123', role: 'technician', name: '' });
+  };
+  const handleDeleteUser = async (id) => { if(confirm("Revoke Access?")) await deleteDoc(doc(db, "users", id)); };
+
+  // --- THEME ENGINE ---
+  const theme = {
+      bg: darkMode ? 'bg-[#0f172a] text-slate-200' : 'bg-slate-50 text-slate-900',
+      card: darkMode ? 'bg-[#1e293b] border-slate-700' : 'bg-white border-slate-200 shadow-sm',
+      header: darkMode ? 'bg-[#020617] border-slate-800' : 'bg-white border-slate-200 shadow-sm',
+      textMain: darkMode ? 'text-white' : 'text-slate-900',
+      textSub: darkMode ? 'text-slate-400' : 'text-slate-500',
+      input: darkMode ? 'bg-[#0f172a] border-slate-600 text-white' : 'bg-white border-slate-300 text-black',
+      tableHead: darkMode ? 'bg-[#0f172a] text-slate-400' : 'bg-slate-50 text-slate-600',
+      tableRow: darkMode ? 'border-slate-700 hover:bg-[#334155]' : 'border-slate-100 hover:bg-blue-50',
   };
 
-  if (loading) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-amber-500 font-bold animate-pulse">🏛️ Opening Executive Suite...</div>;
+  if (loading) return <div className={`min-h-screen flex items-center justify-center font-bold font-mono ${darkMode ? 'bg-black text-green-500' : 'bg-white text-blue-600'}`}>INITIALIZING DATA CORE...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white font-sans pb-20">
+    <div className={`min-h-screen font-sans transition-colors duration-300 ${theme.bg}`}>
       
-      {/* 📱 MOBILE OPTIMIZED HEADER */}
-      <div className="bg-slate-900 border-b border-amber-600/30 sticky top-0 z-50 p-4 shadow-2xl backdrop-blur-md bg-opacity-95">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
-           {/* Row 1: Logo & Mobile Actions */}
-           <div className="flex justify-between items-center w-full md:w-auto">
-              <div><h1 className="text-2xl font-black text-amber-500 tracking-widest">MASTER<span className="text-white">ADMIN</span></h1><p className="text-[10px] text-slate-400">FINANCIAL COMMAND CENTER</p></div>
-              <div className="flex gap-2 md:hidden">
-                  <Link href="/supervisor" className="bg-slate-800 border border-slate-600 px-3 py-2 rounded text-[10px] font-bold">⬅ FLOOR</Link>
-                  <button onClick={handleLogout} className="bg-red-900/20 text-red-400 px-3 py-2 rounded border border-red-600/30 text-[10px] font-bold">LOGOUT</button>
-              </div>
-           </div>
-           {/* Row 2: Navigation Tabs (Scrollable) */}
-           <div className="flex gap-2 overflow-x-auto pb-1 md:pb-0 whitespace-nowrap scrollbar-hide w-full md:w-auto">
-              <button onClick={() => setActiveTab('DASHBOARD')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'DASHBOARD' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>📊 OVERVIEW</button>
-              <button onClick={() => setActiveTab('INVENTORY')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'INVENTORY' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>📦 INVENTORY</button>
-              <button onClick={() => setActiveTab('REPORTS')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'REPORTS' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>📂 REPORTS</button>
-              <button onClick={() => setActiveTab('STAFF')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'STAFF' ? 'bg-amber-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>👥 STAFF</button>
-              <button onClick={() => setActiveTab('CRM')} className={`px-4 py-2 rounded text-xs font-bold transition-all shrink-0 ${activeTab === 'CRM' ? 'bg-green-600 text-black' : 'text-slate-400 hover:text-white bg-slate-800'}`}>📞 CRM</button>
-           </div>
-           {/* Desktop Actions */}
-           <div className="hidden md:flex gap-2 items-center">
-              <Link href="/supervisor" className="bg-slate-800 border border-slate-600 hover:bg-slate-700 px-3 py-2 rounded text-[10px] font-bold">⬅ OPERATION FLOOR</Link>
-              <button onClick={handleLogout} className="bg-red-900/20 hover:bg-red-600 text-red-400 hover:text-white px-3 py-2 rounded border border-red-600/30 text-[10px] font-bold">LOGOUT</button>
-           </div>
+      {/* HEADER */}
+      <div className={`px-6 py-3 sticky top-0 z-50 border-b flex justify-between items-center print:hidden ${theme.header}`}>
+        <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-black tracking-tighter text-blue-500">ADMIN<span className={theme.textMain}>HQ</span></h1>
+            <span className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-600/50">V61 HYBRID</span>
+        </div>
+        <div className="flex gap-3 items-center">
+            <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-full transition-all ${darkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-slate-200 text-slate-600'}`}>
+                {darkMode ? '☀️' : '🌑'}
+            </button>
+
+            <nav className={`flex p-1 rounded-lg ${darkMode ? 'bg-[#0f172a]' : 'bg-slate-200'}`}>
+                {['DASHBOARD', 'TEAM', 'JOBS', 'INVENTORY', 'USERS', 'REPORTS'].map(tab => (
+                    <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === tab ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : theme.textSub + ' hover:text-blue-500'}`}>{tab}</button>
+                ))}
+            </nav>
+            <button onClick={() => router.push('/admin/obd')} className={`px-3 py-1.5 rounded text-xs font-bold border border-dashed border-slate-500 ${theme.textSub} hover:text-white`}>🧠 OBD</button>
+            <button onClick={handleLogout} className="bg-red-600 hover:bg-red-500 text-white px-4 py-1.5 rounded-md text-xs font-bold ml-2 shadow-lg shadow-red-900/50">EXIT</button>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto p-4 md:p-6">
-        
-        {/* ================= TAB 1: FINANCIAL COCKPIT ================= */}
+      <div className="max-w-[1600px] mx-auto p-6">
+
+        {/* ================= TAB 1: DASHBOARD ================= */}
         {activeTab === 'DASHBOARD' && (
-           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                 <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-2xl border border-amber-500/20 shadow-xl"><h3 className="text-xs text-slate-400 font-bold uppercase">Total Revenue</h3><div className="text-3xl font-black text-amber-500 mt-2">₹{metrics.totalRevenue.toLocaleString()}</div></div>
-                 <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-2xl border border-slate-700 shadow-xl"><h3 className="text-xs text-slate-400 font-bold uppercase">Total Jobs</h3><div className="text-3xl font-black text-white mt-2">{metrics.jobCount}</div></div>
-                 <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-2xl border border-slate-700 shadow-xl"><h3 className="text-xs text-slate-400 font-bold uppercase">Parts Sales</h3><div className="text-3xl font-black text-blue-400 mt-2">₹{metrics.totalParts.toLocaleString()}</div></div>
-                 <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-2xl border border-slate-700 shadow-xl"><h3 className="text-xs text-slate-400 font-bold uppercase">Labor Earnings</h3><div className="text-3xl font-black text-green-400 mt-2">₹{metrics.totalLabor.toLocaleString()}</div></div>
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                 <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6">
-                    <h2 className="text-lg font-bold text-amber-500 mb-6 flex items-center gap-2">🏆 Technician Leaderboard</h2>
-                    <div className="space-y-4">{Object.entries(metrics.techPerformance).sort(([,a], [,b]) => b.revenue - a.revenue).map(([tech, stats], index) => (<div key={tech} className="flex items-center gap-4"><div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${index === 0 ? 'bg-amber-500 text-black' : 'bg-slate-700 text-slate-400'}`}>{index + 1}</div><div className="flex-grow"><div className="flex justify-between text-sm font-bold"><span>{tech}</span><span className="text-green-400">₹{stats.revenue.toLocaleString()}</span></div><div className="w-full bg-slate-700 h-2 rounded-full mt-2 overflow-hidden"><div className="bg-blue-500 h-full rounded-full" style={{ width: `${(stats.revenue / metrics.totalRevenue) * 100}%` }}></div></div><div className="text-[10px] text-slate-500 mt-1">{stats.jobs} Jobs Completed</div></div></div>))}</div>
-                 </div>
-                 <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6">
-                    <h2 className="text-lg font-bold text-blue-400 mb-6">📡 Live Activity Feed</h2>
-                    <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">{jobs.slice(0, 10).map(job => (<div key={job.id} className="flex justify-between items-center bg-slate-900/50 p-3 rounded-lg border border-slate-700"><div><div className="font-bold text-sm text-white">{job.regNo}</div><div className="text-[10px] text-slate-400">{job.model} • {job.serviceType}</div></div><div className="text-right"><div className="font-mono font-bold text-green-400 text-sm">₹{((job.parts?.reduce((a,b)=>a+b.total,0)||0) + (job.labor?.reduce((a,b)=>a+b.total,0)||0)).toLocaleString()}</div><div className="text-[9px] text-slate-500">{new Date(job.createdAt?.seconds * 1000).toLocaleDateString()}</div></div></div>))}</div>
-                 </div>
-              </div>
-           </div>
-        )}
-
-        {/* ================= TAB 2: INVENTORY ================= */}
-        {activeTab === 'INVENTORY' && (
-           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-1 bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl h-fit">
-                 <h2 className="text-lg font-bold text-blue-400 mb-4 uppercase tracking-wider">Add New SKU</h2>
-                 <form onSubmit={handleAddItem} className="space-y-4">
-                    <div><label className="text-xs text-slate-500 font-bold">ITEM NAME</label><input className="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white focus:border-blue-500" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} placeholder="Item Name" /></div>
-                    <div className="flex gap-4"><div className="w-1/2"><label className="text-xs text-slate-500 font-bold">TYPE</label><select className="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white" value={newItem.category} onChange={e => setNewItem({...newItem, category: e.target.value})}><option value="PART">📦 Part</option><option value="LABOR">🔧 Labor</option></select></div><div className="w-1/2"><label className="text-xs text-slate-500 font-bold">PRICE (₹)</label><input type="number" className="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white font-mono text-yellow-400" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} placeholder="0" /></div></div>
-                    <div><label className="text-xs text-slate-500 font-bold mb-2 block">COMPATIBILITY</label><div className="flex flex-wrap gap-2">{VEHICLE_TAGS.map(tag => (<button key={tag} type="button" onClick={() => toggleTag(tag)} className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${newItem.tags.includes(tag) ? 'bg-blue-600 text-white border-blue-500' : 'bg-slate-900 text-slate-500 border-slate-700'}`}>{tag}</button>))}</div></div>
-                    <button type="submit" className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold shadow-lg mt-4">SAVE TO DATABASE</button>
-                 </form>
-              </div>
-              <div className="lg:col-span-2 bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
-                 <h2 className="text-lg font-bold text-white mb-4 flex justify-between items-center"><span>Master Database</span><span className="text-xs bg-slate-700 px-2 py-1 rounded text-slate-400">{inventory.length} Items</span></h2>
-                 <div className="overflow-y-auto max-h-[70vh] space-y-2 pr-2">{inventory.map(item => (<div key={item.id} className="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-700 hover:border-slate-500 transition-all"><div><div className="font-bold text-white flex items-center gap-2">{item.category === 'PART' ? '📦' : '🔧'} {item.name}</div><div className="flex gap-2 mt-1">{item.tags?.map(t => <span key={t} className="text-[10px] bg-slate-800 border border-slate-600 text-slate-400 px-1 rounded">{t}</span>)}</div></div><div className="flex items-center gap-4"><span className="font-mono text-yellow-400 font-bold">₹{item.price}</span><button onClick={() => deleteItem(item.id)} className="text-red-500 hover:bg-red-900/30 p-2 rounded">🗑️</button></div></div>))}</div>
-              </div>
-           </div>
-        )}
-
-        {/* ================= TAB 3: REPORTS ================= */}
-        {activeTab === 'REPORTS' && (
-           <div className="bg-slate-800 rounded-2xl border border-slate-700 p-10 text-center space-y-6">
-              <div className="text-6xl">📂</div><h2 className="text-2xl font-black text-white">Data Vault</h2>
-              <p className="text-slate-400 max-w-md mx-auto">Download a complete CSV export of all job cards.</p>
-              <button onClick={downloadCSV} className="bg-amber-600 hover:bg-amber-500 text-black px-8 py-4 rounded-xl font-bold text-lg shadow-xl hover:shadow-2xl transition-all">⬇ DOWNLOAD FULL REPORT (.CSV)</button>
-           </div>
-        )}
-
-        {/* ================= TAB 4: STAFF MANAGEMENT ================= */}
-        {activeTab === 'STAFF' && (
-           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Create User Form */}
-              <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
-                 <h2 className="text-lg font-bold text-purple-400 mb-4 uppercase tracking-wider">Create Staff Account</h2>
-                 <form onSubmit={handleCreateStaff} className="space-y-4">
-                    <div><label className="text-xs text-slate-500 font-bold">EMAIL (USERNAME)</label><input className="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white" value={newStaff.email} onChange={e => setNewStaff({...newStaff, email: e.target.value})} placeholder="tech@workshop.com" /></div>
-                    <div><label className="text-xs text-slate-500 font-bold">PASSWORD</label><input type="password" className="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white" value={newStaff.password} onChange={e => setNewStaff({...newStaff, password: e.target.value})} placeholder="Strong Password" /></div>
-                    <div><label className="text-xs text-slate-500 font-bold">ROLE</label><select className="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white" value={newStaff.role} onChange={e => setNewStaff({...newStaff, role: e.target.value})}><option value="technician">🔧 Technician</option><option value="supervisor">👷 Supervisor</option><option value="admin">🏛️ Admin</option></select></div>
-                    <button type="submit" className="w-full bg-purple-600 hover:bg-purple-500 text-white py-3 rounded-xl font-bold shadow-lg mt-4">CREATE ACCOUNT</button>
-                    <p className="text-[10px] text-slate-500 text-center mt-2">Note: This will create a secure login. The user can sign in immediately.</p>
-                 </form>
-              </div>
-
-              {/* Staff List */}
-              <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
-                 <h2 className="text-lg font-bold text-white mb-4">Active Staff</h2>
-                 <div className="space-y-2">
-                    {staffList.map(s => (
-                       <div key={s.id} className="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-700">
-                          <div><div className="font-bold text-white">{s.email}</div><div className="text-xs text-slate-400 capitalize">{s.role}</div></div>
-                          <div className="text-xs text-slate-500">Active</div>
-                       </div>
-                    ))}
-                    {staffList.length === 0 && <div className="text-slate-500 italic">No staff records found.</div>}
-                 </div>
-              </div>
-           </div>
-        )}
-
-        {/* ================= TAB 5: CRM (ACTIVATED V36) ================= */}
-        {activeTab === 'CRM' && (
-           <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6 min-h-[50vh]">
-              <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                 <div>
-                    <h2 className="text-2xl font-black text-green-500">RETENTION<span className="text-white">ENGINE</span></h2>
-                    <p className="text-xs text-slate-400">Customers inactive for 6+ months. Call them back!</p>
-                 </div>
-                 <div className="bg-slate-900 px-4 py-2 rounded-xl border border-slate-700">
-                    <span className="text-xs text-slate-500 font-bold uppercase">Pending Callbacks</span>
-                    <div className="text-2xl font-black text-white text-center">{dueList.length}</div>
-                 </div>
-              </div>
-
-              {/* CRM LIST */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                 {dueList.map((customer, index) => (
-                    <div key={index} className="bg-slate-900 p-4 rounded-xl border-l-4 border-l-green-600 flex flex-col justify-between hover:bg-slate-800 transition-all">
-                       <div className="mb-4">
-                          <div className="flex justify-between items-start">
-                             <h3 className="text-lg font-bold text-white">{customer.name}</h3>
-                             <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-1 rounded">{customer.daysAgo} Days Ago</span>
-                          </div>
-                          <p className="text-sm text-slate-300 mt-1">{customer.lastCar} <span className="text-slate-500">({customer.regNo})</span></p>
-                          <p className="text-xs text-slate-500 mt-2">Last Visit: {customer.lastDate.toLocaleDateString()}</p>
-                       </div>
-                       <button onClick={() => sendReminder(customer)} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 shadow-lg">
-                          <span>📲</span> Send WhatsApp Reminder
-                       </button>
+            <div className="space-y-6 animate-in fade-in">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div className={`p-6 rounded-xl border-l-4 border-green-500 shadow-lg ${theme.card}`}>
+                        <h3 className={`${theme.textSub} text-[10px] font-bold uppercase tracking-widest`}>Total Revenue</h3>
+                        <p className={`text-4xl font-black mt-2 ${theme.textMain}`}>₹{financials.totalRevenue.toLocaleString()}</p>
                     </div>
-                 ))}
-              </div>
+                    <div className={`p-6 rounded-xl border-l-4 border-blue-500 shadow-lg ${theme.card}`}>
+                        <h3 className={`${theme.textSub} text-[10px] font-bold uppercase tracking-widest`}>Job Volume</h3>
+                        <p className={`text-4xl font-black mt-2 ${theme.textMain}`}>{jobs.length}</p>
+                    </div>
+                    <div className={`p-6 rounded-xl border-l-4 border-purple-500 shadow-lg ${theme.card}`}>
+                        <h3 className={`${theme.textSub} text-[10px] font-bold uppercase tracking-widest`}>Avg Ticket Value</h3>
+                        <p className={`text-4xl font-black mt-2 ${theme.textMain}`}>₹{jobs.length > 0 ? Math.round(financials.totalRevenue / jobs.length).toLocaleString() : 0}</p>
+                    </div>
+                    <div className={`p-6 rounded-xl border-l-4 border-red-500 shadow-lg ${theme.card}`}>
+                        <h3 className={`${theme.textSub} text-[10px] font-bold uppercase tracking-widest`}>Active Cars</h3>
+                        <p className={`text-4xl font-black mt-2 ${theme.textMain}`}>{jobs.filter(j => j.status !== 'DELIVERED').length}</p>
+                    </div>
+                </div>
+            </div>
+        )}
 
-              {dueList.length === 0 && (
-                 <div className="text-center py-20">
-                    <div className="text-4xl mb-4">🎉</div>
-                    <h3 className="text-xl font-bold text-white">All Clear!</h3>
-                    <p className="text-slate-400 text-sm">No inactive customers found. Your retention is 100%.</p>
-                 </div>
-              )}
-           </div>
+        {/* ================= TAB 2: TEAM (LEADERBOARD) ================= */}
+        {activeTab === 'TEAM' && (
+            <div className="space-y-6 animate-in slide-in-from-bottom-4">
+                <div className={`rounded-xl p-8 border ${theme.card} relative overflow-hidden`}>
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-500 via-orange-500 to-red-500"></div>
+                    <h2 className="text-2xl font-black mb-8 text-center text-yellow-500 uppercase tracking-widest flex items-center justify-center gap-2">🏆 Technician Leaderboard</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+                        {teamStats.slice(0, 3).map((tech, i) => (
+                            <div key={tech.name} className={`relative p-6 rounded-2xl border-2 flex flex-col items-center justify-center transform hover:scale-105 transition-all ${i === 0 ? 'border-yellow-500 bg-yellow-500/10 h-64 order-2 shadow-[0_0_30px_rgba(234,179,8,0.3)]' : i === 1 ? 'border-slate-400 bg-slate-400/10 h-56 order-1' : 'border-orange-700 bg-orange-700/10 h-48 order-3'}`}>
+                                <div className="text-6xl mb-2 filter drop-shadow-xl">{i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</div>
+                                <h3 className={`text-xl font-black uppercase text-center ${theme.textMain}`}>{tech.name}</h3>
+                                <div className="mt-auto text-center w-full">
+                                    <div className="text-sm font-mono font-bold text-green-500 bg-black/30 rounded px-2 py-1 mb-1">{tech.jobsCount} Jobs</div>
+                                    {/* Safe Math for Revenue */}
+                                    <div className={`text-lg font-bold ${theme.textSub}`}>₹{(tech.laborRevenue || 0).toLocaleString()}</div>
+                                </div>
+                                <div className="absolute -top-4 -right-4 text-[80px] opacity-5 font-black pointer-events-none">{i+1}</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className={`lg:col-span-2 rounded-xl p-6 border ${theme.card}`}>
+                        <h3 className={`font-bold uppercase mb-4 ${theme.textSub}`}>📡 Live Floor Monitor</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {teamStats.map(tech => (
+                                <div key={tech.name} className={`p-4 rounded-xl border relative overflow-hidden ${tech.status === 'WORKING' ? 'border-green-500 bg-green-500/10' : tech.status === 'PAUSED' ? 'border-red-500 bg-red-500/10' : 'border-slate-700 bg-slate-800'}`}>
+                                    <div className="flex justify-between mb-1">
+                                        <span className="font-bold">{tech.name}</span>
+                                        <span className={`w-2 h-2 rounded-full ${tech.status === 'WORKING' ? 'bg-green-500 animate-ping' : 'bg-slate-500'}`}></span>
+                                    </div>
+                                    <div className="text-xs opacity-70">{tech.activeNow || 'Idle'}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    
+                    <div className={`rounded-xl p-6 border ${theme.card}`}>
+                        <h3 className={`font-bold uppercase mb-4 ${theme.textSub}`}>Payout Preview</h3>
+                        <div className="flex items-center gap-2 mb-4 p-2 bg-purple-900/20 rounded border border-purple-500/30">
+                            <span className="text-xs text-purple-400">Comm %:</span>
+                            <input type="number" value={commissionRate} onChange={e => setCommissionRate(e.target.value)} className="w-12 bg-transparent border-b border-purple-500 text-center font-bold text-white" />
+                        </div>
+                        <div className="space-y-2 max-h-60 overflow-y-auto">
+                            {teamStats.map(tech => (
+                                <div key={tech.name} className="flex justify-between text-sm border-b border-slate-700 pb-1">
+                                    <span>{tech.name}</span>
+                                    <span className="font-mono text-green-400">₹{Math.round((tech.laborRevenue || 0) * (commissionRate/100))}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* ================= TAB 3: JOBS MANAGER (RESTORED V55 GLORY) ================= */}
+        {activeTab === 'JOBS' && (
+            <div className="grid grid-cols-12 gap-6 h-[85vh]">
+                
+                {/* LIST PANEL */}
+                <div className={`col-span-12 lg:col-span-4 rounded-xl border overflow-hidden flex flex-col ${theme.card}`}>
+                    <div className={`p-4 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} flex justify-between items-center`}>
+                        <h3 className={`font-bold ${theme.textMain}`}>Fleet Manager</h3>
+                        <input placeholder="Search..." className={`p-2 rounded text-xs w-1/2 font-mono ${theme.input}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                    </div>
+                    <div className="overflow-y-auto flex-grow">
+                        <table className="w-full text-sm text-left">
+                            <thead className={`${theme.tableHead} text-xs uppercase sticky top-0 z-10`}><tr><th className="px-4 py-3">Vehicle</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Total</th></tr></thead>
+                            <tbody className={theme.textMain}>
+                                {jobs.filter(j => (j.regNo || '').includes(searchTerm.toUpperCase())).map(job => {
+                                    const total = (Array.isArray(job.parts) ? job.parts.reduce((a,b)=>a+(Number(b.total)||0),0) : 0) + (Array.isArray(job.labor) ? job.labor.reduce((a,b)=>a+(Number(b.total)||0),0) : 0);
+                                    return (
+                                        <tr key={job.id} className={`border-b cursor-pointer transition-colors ${theme.tableRow} ${selectedJob?.id === job.id ? 'bg-blue-600/20 border-l-4 border-l-blue-500' : ''}`} onClick={() => setSelectedJob(job)}>
+                                            <td className="px-4 py-3">
+                                                <div className="font-bold font-mono">{job.regNo}</div>
+                                                <div className={`text-[10px] ${theme.textSub}`}>{job.model} • {job.customerName}</div>
+                                            </td>
+                                            <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${job.status === 'READY' ? 'bg-green-500/20 text-green-400' : 'bg-slate-500/20 text-slate-400'}`}>{job.status}</span></td>
+                                            <td className="px-4 py-3 text-right font-mono font-bold text-xs">₹{total.toLocaleString()}</td>
+                                        </tr>
+                                    )
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {/* DETAIL PANEL - THE GLORY DOSSIER */}
+                <div className={`col-span-12 lg:col-span-8 rounded-xl border flex flex-col shadow-2xl ${theme.card}`}>
+                    {selectedJob ? (
+                        <>
+                            <div className={`p-6 border-b ${darkMode ? 'border-slate-700 bg-[#0f172a]' : 'border-slate-200 bg-white'} flex justify-between items-start`}>
+                                <div>
+                                    <h1 className="text-4xl font-black font-mono tracking-tight text-blue-500">{selectedJob.regNo}</h1>
+                                    <div className="flex gap-3 mt-2 text-sm font-bold opacity-80">
+                                        <span>{selectedJob.model}</span>
+                                        <span>•</span>
+                                        <span>{selectedJob.variant}</span>
+                                        <span>•</span>
+                                        <span className="bg-slate-700 px-2 rounded text-xs py-0.5">{selectedJob.fuelType}</span>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <div className={`text-xs font-bold uppercase mb-1 ${theme.textSub}`}>Current Status</div>
+                                    <div className={`text-lg font-black px-3 py-1 rounded border ${selectedJob.status === 'READY' ? 'border-green-500 text-green-500 bg-green-900/10' : 'border-blue-500 text-blue-500 bg-blue-900/10'}`}>{selectedJob.status}</div>
+                                    <div className="mt-2">
+                                        <button onClick={() => router.push(`/bill/${selectedJob.id}`)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-bold text-xs shadow-lg">📄 VIEW INVOICE</button>
+                                        <button onClick={(e) => {if(confirm("Delete Job Permanently?")) deleteDoc(doc(db, "jobs", selectedJob.id))}} className="ml-2 bg-red-900/30 text-red-500 border border-red-900 hover:bg-red-900 hover:text-white px-4 py-2 rounded font-bold text-xs">🗑️ DELETE</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className={`flex border-b ${darkMode ? 'border-slate-700 bg-[#1e293b]' : 'border-slate-200 bg-slate-50'}`}>
+                                {['INFO', 'TASKS', 'FINANCE', 'LOGS'].map(tab => (
+                                    <button key={tab} onClick={() => setJobDetailTab(tab)} className={`flex-1 py-3 text-xs font-bold tracking-widest border-b-2 transition-all ${jobDetailTab === tab ? 'border-blue-500 text-blue-500 bg-blue-500/5' : 'border-transparent ' + theme.textSub}`}>{tab}</button>
+                                ))}
+                            </div>
+
+                            <div className="flex-grow overflow-y-auto p-6">
+                                {jobDetailTab === 'INFO' && (
+                                    <div className="space-y-6">
+                                        <div className="grid grid-cols-2 gap-6">
+                                            <div className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                                                <h4 className="text-xs font-bold uppercase text-blue-500 mb-4">👤 Customer Profile</h4>
+                                                <div className="space-y-2 text-sm text-gray-300">
+                                                    <div className="flex justify-between"><span>Name:</span> <span className="font-bold text-white">{selectedJob.customerName}</span></div>
+                                                    <div className="flex justify-between"><span>Phone:</span> <span className="font-mono">{selectedJob.customerPhone}</span></div>
+                                                    <div className="flex justify-between"><span>Billing:</span> <span>{selectedJob.billingName || '-'}</span></div>
+                                                    <div className="flex justify-between"><span>GSTIN:</span> <span className="font-mono">{selectedJob.gstin || '-'}</span></div>
+                                                </div>
+                                            </div>
+                                            <div className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                                                <h4 className="text-xs font-bold uppercase text-purple-500 mb-4">🚗 Technical DNA</h4>
+                                                <div className="space-y-2 text-sm text-gray-300">
+                                                    <div className="flex justify-between"><span>VIN:</span> <span className="font-mono text-xs">{selectedJob.vin || 'N/A'}</span></div>
+                                                    <div className="flex justify-between"><span>Engine:</span> <span className="font-mono text-xs">{selectedJob.engineNo || 'N/A'}</span></div>
+                                                    <div className="flex justify-between"><span>Odometer:</span> <span className="font-bold text-white">{selectedJob.odometer} km</span></div>
+                                                    <div className="flex justify-between"><span>Color:</span> <span>{selectedJob.color}</span></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                                            <h4 className="text-xs font-bold uppercase text-yellow-500 mb-2">🕵️‍♂️ Supervisor Observations</h4>
+                                            <p className="text-sm opacity-80 italic">"{selectedJob.supervisorObs || 'No notes recorded.'}"</p>
+                                            {/* FUTURE ADVISORY RESTORED */}
+                                            {selectedJob.futureAdvisory?.length > 0 && (
+                                                <div className="mt-4 p-4 border border-purple-500/30 bg-purple-900/10 rounded">
+                                                    <h5 className="font-bold text-purple-400 text-xs uppercase mb-2">🔮 Future Recommendations</h5>
+                                                    {selectedJob.futureAdvisory.map((item, idx) => (
+                                                        <div key={idx} className="flex justify-between text-xs border-b border-purple-500/20 py-1">
+                                                            <span>{item.item}</span>
+                                                            <span className="opacity-70">{item.dueIn}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {jobDetailTab === 'TASKS' && (
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <h4 className="font-bold text-sm">Technician: <span className="text-blue-400">{selectedJob.technicianName}</span></h4>
+                                        </div>
+                                        {selectedJob.blocks?.map((block, i) => (
+                                            <div key={i} className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                                                <h5 className="font-bold text-xs uppercase mb-3 text-slate-500">{block.name}</h5>
+                                                <div className="space-y-2">
+                                                    {block.steps.map((step, k) => (
+                                                        <div key={k} className="flex items-center gap-3 text-sm">
+                                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center text-[10px] ${step.includes('✅') ? 'bg-green-500 border-green-500 text-black' : 'border-slate-500'}`}>{step.includes('✅') && '✓'}</div>
+                                                            <span className={step.includes('✅') ? 'opacity-50 line-through' : ''}>{step.replace(' ✅','')}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {selectedJob.obdScanReport && (
+                                            <div className="p-4 rounded-lg border border-red-900/50 bg-red-900/10">
+                                                <h5 className="font-bold text-xs uppercase mb-2 text-red-400">OBD Codes Detected</h5>
+                                                <p className="font-mono text-sm">{selectedJob.obdScanReport}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {jobDetailTab === 'FINANCE' && (
+                                    <div className="space-y-6">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <h4 className="text-xs font-bold uppercase text-slate-500 mb-2 border-b border-slate-700 pb-1">Parts Used</h4>
+                                                <div className="space-y-1">
+                                                    {selectedJob.parts?.map((p, i) => (
+                                                        <div key={i} className="flex justify-between text-sm py-1 border-b border-slate-800/50">
+                                                            <span>{p.desc} <span className="text-[10px] opacity-50">x{p.qty}</span></span>
+                                                            <span className="font-mono">₹{p.total}</span>
+                                                        </div>
+                                                    ))}
+                                                    {(!selectedJob.parts || selectedJob.parts.length === 0) && <p className="text-xs italic opacity-50">No parts billed.</p>}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <h4 className="text-xs font-bold uppercase text-slate-500 mb-2 border-b border-slate-700 pb-1">Labor Charges</h4>
+                                                <div className="space-y-1">
+                                                    {selectedJob.labor?.map((l, i) => (
+                                                        <div key={i} className="flex justify-between text-sm py-1 border-b border-slate-800/50">
+                                                            <span>{l.desc}</span>
+                                                            <span className="font-mono">₹{l.total}</span>
+                                                        </div>
+                                                    ))}
+                                                    {(!selectedJob.labor || selectedJob.labor.length === 0) && <p className="text-xs italic opacity-50">No labor billed.</p>}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className={`p-4 rounded-lg mt-4 flex justify-between items-center ${darkMode ? 'bg-slate-900' : 'bg-slate-100'}`}>
+                                            <span className="text-sm font-bold">GRAND TOTAL</span>
+                                            <span className="text-2xl font-black text-green-500">₹{((selectedJob.parts?.reduce((a,b)=>a+(Number(b.total)||0),0) || 0) + (selectedJob.labor?.reduce((a,b)=>a+(Number(b.total)||0),0) || 0)).toLocaleString()}</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {jobDetailTab === 'LOGS' && (
+                                    <div className="space-y-4">
+                                        <div className="relative border-l-2 border-slate-700 ml-2 space-y-6 pl-4 py-2">
+                                            {selectedJob.statusLogs?.map((log, i) => (
+                                                <div key={i} className="relative">
+                                                    <div className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full ${log.status === 'PAUSED' ? 'bg-red-500' : 'bg-blue-500'}`}></div>
+                                                    <p className="text-xs font-mono opacity-50">{new Date(log.time).toLocaleString()}</p>
+                                                    <p className="font-bold text-sm">{log.status}</p>
+                                                    {log.reason && <p className="text-xs text-red-400 italic">Reason: {log.reason}</p>}
+                                                </div>
+                                            ))}
+                                            <div className="relative">
+                                                <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-green-500"></div>
+                                                <p className="text-xs font-mono opacity-50">{new Date(selectedJob.createdAt?.seconds * 1000).toLocaleString()}</p>
+                                                <p className="font-bold text-sm">JOB CREATED</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    ) : <div className="flex items-center justify-center h-full opacity-30 text-xl font-bold">SELECT A JOB</div>}
+                </div>
+            </div>
+        )}
+
+        {/* ================= TAB 4: INVENTORY (FULL) ================= */}
+        {activeTab === 'INVENTORY' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className={`p-6 rounded-xl shadow h-fit ${theme.card}`}>
+                    <h3 className={`font-bold text-lg mb-4 ${theme.textMain}`}>Add Part</h3>
+                    <div className="space-y-3">
+                        <input className={`w-full border p-2 rounded ${theme.input}`} placeholder="Part Name" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
+                        <div className="flex gap-2"><input className={`w-1/2 border p-2 rounded ${theme.input}`} type="number" placeholder="Price" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} /><input className={`w-1/2 border p-2 rounded ${theme.input}`} type="number" placeholder="Stock" value={newItem.stock} onChange={e => setNewItem({...newItem, stock: e.target.value})} /></div>
+                        <button onClick={handleAddItem} className="w-full bg-orange-600 text-white font-bold py-2 rounded hover:bg-orange-500">ADD STOCK</button>
+                    </div>
+                </div>
+                <div className={`col-span-2 rounded-xl shadow overflow-hidden ${theme.card}`}>
+                    <table className="w-full text-sm text-left"><thead className={theme.tableHead}><tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Price</th><th className="px-4 py-2">Stock</th><th className="px-4 py-2">Action</th></tr></thead><tbody className={theme.textMain}>{inventory.map(i => (<tr key={i.id} className={`border-b ${theme.tableRow}`}><td className="px-4 py-2 font-bold">{i.name}</td><td className="px-4 py-2">₹{i.price}</td><td className="px-4 py-2">{i.stock}</td><td className="px-4 py-2"><button onClick={()=>handleDeleteItem(i.id)} className="text-red-500">×</button></td></tr>))}</tbody></table>
+                </div>
+            </div>
+        )}
+
+        {/* ================= TAB 5: USERS (FULL) ================= */}
+        {activeTab === 'USERS' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className={`p-6 rounded-xl shadow h-fit border-l-4 border-red-500 ${theme.card}`}>
+                    <h3 className={`font-bold text-lg mb-4 ${theme.textMain}`}>Create Staff</h3>
+                    <div className="space-y-3">
+                        <input className={`w-full border p-2 rounded ${theme.input}`} placeholder="Staff Name" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} />
+                        <input className={`w-full border p-2 rounded ${theme.input}`} placeholder="Email" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} />
+                        <select className={`w-full border p-2 rounded ${theme.input}`} value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}><option value="technician">Technician</option><option value="supervisor">Supervisor</option><option value="admin">Admin</option></select>
+                        <button onClick={handleCreateUser} className="w-full bg-red-600 text-white font-bold py-2 rounded hover:bg-red-700">GRANT ACCESS</button>
+                    </div>
+                </div>
+                <div className={`col-span-2 rounded-xl shadow overflow-hidden ${theme.card}`}>
+                    <h3 className={`p-4 font-bold border-b ${theme.textMain} ${darkMode ? 'border-slate-700' : 'border-gray-200'}`}>Active Users</h3>
+                    <table className="w-full text-sm text-left"><thead className={theme.tableHead}><tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Role</th><th className="px-4 py-2">Email</th><th className="px-4 py-2">Action</th></tr></thead><tbody className={theme.textMain}>{usersList.map(u => (<tr key={u.id} className={`border-b ${theme.tableRow}`}><td className="px-4 py-2 font-bold">{u.name}</td><td className="px-4 py-2 uppercase text-xs font-bold text-blue-500">{u.role}</td><td className={`px-4 py-2 ${theme.textSub}`}>{u.email}</td><td className="px-4 py-2"><button onClick={()=>handleDeleteUser(u.id)} className="text-red-500 font-bold">REVOKE</button></td></tr>))}</tbody></table>
+                </div>
+            </div>
+        )}
+
+        {/* ================= TAB 6: REPORTS (NEW AUDIT & DOWNLOADS) ================= */}
+        {activeTab === 'REPORTS' && (
+            <div className="space-y-6 animate-in fade-in">
+                <div className={`p-8 rounded-xl border text-center ${theme.card}`}>
+                    <h2 className={`text-2xl font-bold mb-2 ${theme.textMain}`}>📊 Audit & Accounting Center</h2>
+                    <p className={`mb-6 ${theme.textSub}`}>Export comprehensive job history for external accounting (Tally, Zoho, Excel).</p>
+                    <div className="flex justify-center gap-4 flex-wrap">
+                        <button onClick={() => downloadReport('CSV')} className="bg-green-600 hover:bg-green-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-xl">📥 DOWNLOAD CSV</button>
+                        <button onClick={() => downloadReport('PDF')} className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-xl">🖨️ PRINT PDF</button>
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className={`p-6 rounded-xl border ${theme.card}`}>
+                        <h3 className={`text-sm font-bold uppercase mb-4 ${theme.textSub}`}>Revenue Split (Parts vs Labor)</h3>
+                        <div className="flex items-end gap-4 h-40">
+                            <div className="w-1/2 bg-blue-600 rounded-t flex flex-col justify-end text-center text-white pb-2" style={{height: '100%'}}><span className="font-bold">₹{financials.totalLabor.toLocaleString()}</span><span className="text-xs opacity-70">LABOR</span></div>
+                            <div className="w-1/2 bg-orange-500 rounded-t flex flex-col justify-end text-center text-white pb-2" style={{height: `${(financials.totalParts / financials.totalRevenue)*100}%`}}><span className="font-bold">₹{financials.totalParts.toLocaleString()}</span><span className="text-xs opacity-70">PARTS</span></div>
+                        </div>
+                    </div>
+                    <div className={`p-6 rounded-xl border ${theme.card}`}>
+                        <h3 className={`text-sm font-bold uppercase mb-4 ${theme.textSub}`}>Job Status Flow</h3>
+                        <div className="space-y-3">
+                            {['ESTIMATE', 'WORK_IN_PROGRESS', 'READY', 'DELIVERED'].map(status => {
+                                const count = jobs.filter(j => j.status === status).length;
+                                return (<div key={status} className="flex items-center gap-2"><div className={`w-32 text-xs font-bold ${theme.textMain}`}>{status}</div><div className="flex-grow bg-slate-700 rounded-full h-2 overflow-hidden"><div className="bg-green-500 h-full" style={{width: `${(count/jobs.length)*100}%`}}></div></div><div className={`w-8 text-xs font-mono ${theme.textMain}`}>{count}</div></div>)
+                            })}
+                        </div>
+                    </div>
+                </div>
+            </div>
         )}
 
       </div>
