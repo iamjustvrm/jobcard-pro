@@ -17,11 +17,11 @@ export default function AdminDashboard() {
   const [jobs, setJobs] = useState([]);
   const [inventory, setInventory] = useState([]);
   const [usersList, setUsersList] = useState([]);
-  const [activeTab, setActiveTab] = useState('DASHBOARD'); // DASHBOARD | TEAM | JOBS | INVENTORY | USERS | REPORTS
+  const [activeTab, setActiveTab] = useState('DASHBOARD'); 
   
   // --- UI STATES ---
   const [selectedJob, setSelectedJob] = useState(null); 
-  const [jobDetailTab, setJobDetailTab] = useState('INFO'); // INFO | TASKS | FINANCE | LOGS
+  const [jobDetailTab, setJobDetailTab] = useState('INFO'); 
   const [commissionRate, setCommissionRate] = useState(5); 
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -40,15 +40,12 @@ export default function AdminDashboard() {
 
   // 2. LIVE DATA SYNC
   useEffect(() => {
-    // JOBS
     const qJobs = query(collection(db, "jobs"), orderBy("createdAt", "desc"));
     const unsubJobs = onSnapshot(qJobs, (snap) => setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    // INVENTORY
     const qInv = query(collection(db, "inventory"), orderBy("name", "asc"));
     const unsubInv = onSnapshot(qInv, (snap) => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    // USERS
     const qUsers = query(collection(db, "users"));
     const unsubUsers = onSnapshot(qUsers, (snap) => setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
@@ -57,14 +54,12 @@ export default function AdminDashboard() {
 
   const handleLogout = async () => { await signOut(auth); router.push('/'); };
 
-  // --- 🛠️ FIXED: BULLETPROOF COPY FUNCTION (Solves NotAllowedError) ---
+  // --- 🛠️ UTILS: BULLETPROOF COPY ---
   const copyToClipboard = async (text) => {
     try {
-      // Method 1: Modern API
       await navigator.clipboard.writeText(text);
       alert("✅ Link Copied!");
     } catch (err) {
-      // Method 2: Fallback for Security Blocks
       try {
         const textArea = document.createElement("textarea");
         textArea.value = text;
@@ -84,20 +79,14 @@ export default function AdminDashboard() {
 
   // --- ANALYTICS ENGINE ---
   const calculateFinancials = () => {
-      let totalParts = 0;
-      let totalLabor = 0;
-      let totalRevenue = 0;
-      
+      let totalParts = 0; let totalLabor = 0; let totalRevenue = 0;
       jobs.forEach(job => {
           const p = Array.isArray(job.parts) ? job.parts.reduce((a, b) => a + (Number(b.total) || 0), 0) : 0;
           const l = Array.isArray(job.labor) ? job.labor.reduce((a, b) => a + (Number(b.total) || 0), 0) : 0;
-          totalParts += p;
-          totalLabor += l;
-          totalRevenue += (p + l);
+          totalParts += p; totalLabor += l; totalRevenue += (p + l);
       });
       return { totalParts, totalLabor, totalRevenue };
   };
-
   const financials = calculateFinancials();
 
   const getTeamStats = () => {
@@ -125,7 +114,6 @@ export default function AdminDashboard() {
   };
   const teamStats = getTeamStats();
 
-  // --- DOWNLOAD ENGINE ---
   const downloadReport = (type) => {
       const headers = ["Job ID", "Date", "Customer", "Phone", "Reg No", "Model", "Tech", "Status", "Parts Total", "Labor Total", "Grand Total", "Supervisor Notes"];
       const rows = jobs.map(job => {
@@ -162,7 +150,21 @@ export default function AdminDashboard() {
       alert(`User ${newUser.name} Added!`);
       setNewUser({ email: '', password: 'password123', role: 'technician', name: '' });
   };
-  const handleDeleteUser = async (id) => { if(confirm("Revoke Access?")) await deleteDoc(doc(db, "users", id)); };
+  const handleDeleteUser = async (id) => { if(confirm("Revoke Access? This will remove the user permanently.")) await deleteDoc(doc(db, "users", id)); };
+
+  const handleResetPassword = async (id, currentName) => {
+      const newPass = prompt(`Enter NEW password for ${currentName}:`);
+      if (newPass) {
+          try {
+              const userRef = doc(db, "users", id);
+              await updateDoc(userRef, { password: newPass });
+              alert(`✅ Password updated for ${currentName}. All records preserved.`);
+          } catch (e) {
+              console.error(e);
+              alert("Error updating password.");
+          }
+      }
+  };
 
   // --- THEME ENGINE ---
   const theme = {
@@ -181,11 +183,11 @@ export default function AdminDashboard() {
   return (
     <div className={`min-h-screen font-sans transition-colors duration-300 ${theme.bg}`}>
       
-      {/* HEADER - MOBILE OPTIMIZED 📱 */}
+      {/* HEADER */}
       <div className={`px-4 lg:px-6 py-3 sticky top-0 z-50 border-b flex flex-wrap justify-between items-center print:hidden ${theme.header}`}>
         <div className="flex items-center gap-2 lg:gap-3 w-full lg:w-auto justify-between lg:justify-start mb-2 lg:mb-0">
             <h1 className="text-xl lg:text-2xl font-black tracking-tighter text-blue-500">ADMIN<span className={theme.textMain}>HQ</span></h1>
-            <span className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-600/50">V66 MOBILE</span>
+            <span className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-600/50">V69 ALL-SEEING</span>
             <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-full lg:hidden transition-all ${darkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-slate-200 text-slate-600'}`}>{darkMode ? '☀️' : '🌑'}</button>
         </div>
         
@@ -283,11 +285,11 @@ export default function AdminDashboard() {
             </div>
         )}
 
-        {/* ================= TAB 3: JOBS MANAGER (MOBILE OPTIMIZED) ================= */}
+        {/* ================= TAB 3: JOBS MANAGER (FULLY RESTORED & EXPANDED) ================= */}
         {activeTab === 'JOBS' && (
             <div className="grid grid-cols-12 gap-6 h-[85vh] overflow-hidden flex flex-col lg:grid">
                 
-                {/* LIST PANEL (Shows on Mobile if no job selected) */}
+                {/* LIST PANEL */}
                 <div className={`${selectedJob ? 'hidden lg:flex' : 'flex'} col-span-12 lg:col-span-4 rounded-xl border overflow-hidden flex-col ${theme.card} h-full`}>
                     <div className={`p-4 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} flex justify-between items-center`}>
                         <h3 className={`font-bold ${theme.textMain}`}>Fleet Manager</h3>
@@ -315,7 +317,7 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                {/* DETAIL PANEL (Shows on Mobile if job selected) */}
+                {/* DETAIL PANEL - THE GLORY DOSSIER (UPDATED V69) */}
                 <div className={`${!selectedJob ? 'hidden lg:flex' : 'flex'} col-span-12 lg:col-span-8 rounded-xl border flex-col shadow-2xl ${theme.card} h-full`}>
                     {selectedJob ? (
                         <>
@@ -328,7 +330,7 @@ export default function AdminDashboard() {
                                             <span>{selectedJob.model}</span><span>•</span><span>{selectedJob.variant}</span><span>•</span><span className="bg-slate-700 px-2 rounded text-xs py-0.5">{selectedJob.fuelType}</span>
                                         </div>
                                         
-                                        {/* 🆕 TRACKING LINK BOX (FIXED) */}
+                                        {/* TRACKING LINK BOX */}
                                         <div className="mt-4 flex items-center gap-2 bg-slate-800/50 p-2 rounded border border-slate-700 w-full lg:w-fit">
                                             <div className="text-[10px] uppercase text-slate-500 font-bold">Job ID:</div>
                                             <code className="text-xs font-mono text-green-400 truncate max-w-[100px]">{selectedJob.id}</code>
@@ -398,24 +400,63 @@ export default function AdminDashboard() {
                                     </div>
                                 )}
 
+                                {/* --- 🛠️ UPDATED TASKS TAB (SHOWS ALL CATEGORIES) --- */}
                                 {jobDetailTab === 'TASKS' && (
-                                    <div className="space-y-4">
+                                    <div className="space-y-6">
                                         <div className="flex justify-between items-center mb-2">
-                                            <h4 className="font-bold text-sm">Technician: <span className="text-blue-400">{selectedJob.technicianName}</span></h4>
+                                            <h4 className="font-bold text-sm">Technician Assigned: <span className="text-blue-400">{selectedJob.technicianName || 'Unassigned'}</span></h4>
                                         </div>
-                                        {selectedJob.blocks?.map((block, i) => (
-                                            <div key={i} className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-                                                <h5 className="font-bold text-xs uppercase mb-3 text-slate-500">{block.name}</h5>
+                                        
+                                        {/* 1. MECHANICAL BLOCKS */}
+                                        {selectedJob.blocks?.length > 0 && (
+                                            <div className="space-y-4">
+                                                {selectedJob.blocks.map((block, i) => (
+                                                    <div key={i} className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                                                        <h5 className="font-bold text-xs uppercase mb-3 text-slate-500">{block.name}</h5>
+                                                        <div className="space-y-2">
+                                                            {block.steps.map((step, k) => (
+                                                                <div key={k} className="flex items-center gap-3 text-sm">
+                                                                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center text-[10px] ${step.includes('✅') ? 'bg-green-500 border-green-500 text-black' : 'border-slate-500'}`}>{step.includes('✅') && '✓'}</div>
+                                                                    <span className={step.includes('✅') ? 'opacity-50 line-through' : ''}>{step.replace(' ✅','')}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {/* 2. ELECTRICAL TASKS (Explicit Check) */}
+                                        {selectedJob.electricalTasks?.length > 0 && (
+                                            <div className={`p-4 rounded-lg border border-yellow-500/30 bg-yellow-900/10`}>
+                                                <h5 className="font-bold text-xs uppercase mb-3 text-yellow-500">⚡ Electrical Works</h5>
                                                 <div className="space-y-2">
-                                                    {block.steps.map((step, k) => (
+                                                    {selectedJob.electricalTasks.map((task, k) => (
                                                         <div key={k} className="flex items-center gap-3 text-sm">
-                                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center text-[10px] ${step.includes('✅') ? 'bg-green-500 border-green-500 text-black' : 'border-slate-500'}`}>{step.includes('✅') && '✓'}</div>
-                                                            <span className={step.includes('✅') ? 'opacity-50 line-through' : ''}>{step.replace(' ✅','')}</span>
+                                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center text-[10px] ${task.done ? 'bg-yellow-500 border-yellow-500 text-black' : 'border-slate-500'}`}>{task.done && '✓'}</div>
+                                                            <span className={task.done ? 'opacity-50 line-through' : ''}>{task.desc || task.name || task}</span>
                                                         </div>
                                                     ))}
                                                 </div>
                                             </div>
-                                        ))}
+                                        )}
+
+                                        {/* 3. QC / INSPECTION (Explicit Check) */}
+                                        {selectedJob.qcTasks?.length > 0 && (
+                                            <div className={`p-4 rounded-lg border border-purple-500/30 bg-purple-900/10`}>
+                                                <h5 className="font-bold text-xs uppercase mb-3 text-purple-500">🔍 Quality Check (QC)</h5>
+                                                <div className="space-y-2">
+                                                    {selectedJob.qcTasks.map((task, k) => (
+                                                        <div key={k} className="flex items-center gap-3 text-sm">
+                                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center text-[10px] ${task.done ? 'bg-purple-500 border-purple-500 text-black' : 'border-slate-500'}`}>{task.done && '✓'}</div>
+                                                            <span className={task.done ? 'opacity-50 line-through' : ''}>{task.desc || task.name || task}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* 4. OBD CODES */}
                                         {selectedJob.obdScanReport && (
                                             <div className="p-4 rounded-lg border border-red-900/50 bg-red-900/10">
                                                 <h5 className="font-bold text-xs uppercase mb-2 text-red-400">OBD Codes Detected</h5>
@@ -486,7 +527,7 @@ export default function AdminDashboard() {
             </div>
         )}
 
-        {/* ================= TAB 4: INVENTORY (FULL WRAPPED) ================= */}
+        {/* ================= TAB 4: INVENTORY (FULL) ================= */}
         {activeTab === 'INVENTORY' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className={`p-6 rounded-xl shadow h-fit ${theme.card}`}>
@@ -505,7 +546,7 @@ export default function AdminDashboard() {
             </div>
         )}
 
-        {/* ================= TAB 5: USERS (FULL WRAPPED) ================= */}
+        {/* ================= TAB 5: USERS (WITH PASSWORD RESET) ================= */}
         {activeTab === 'USERS' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className={`p-6 rounded-xl shadow h-fit border-l-4 border-red-500 ${theme.card}`}>
@@ -520,13 +561,13 @@ export default function AdminDashboard() {
                 <div className={`col-span-2 rounded-xl shadow overflow-hidden ${theme.card}`}>
                     <h3 className={`p-4 font-bold border-b ${theme.textMain} ${darkMode ? 'border-slate-700' : 'border-gray-200'}`}>Active Users</h3>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left"><thead className={theme.tableHead}><tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Role</th><th className="px-4 py-2">Email</th><th className="px-4 py-2">Action</th></tr></thead><tbody className={theme.textMain}>{usersList.map(u => (<tr key={u.id} className={`border-b ${theme.tableRow}`}><td className="px-4 py-2 font-bold">{u.name}</td><td className="px-4 py-2 uppercase text-xs font-bold text-blue-500">{u.role}</td><td className={`px-4 py-2 ${theme.textSub}`}>{u.email}</td><td className="px-4 py-2"><button onClick={()=>handleDeleteUser(u.id)} className="text-red-500 font-bold">REVOKE</button></td></tr>))}</tbody></table>
+                        <table className="w-full text-sm text-left"><thead className={theme.tableHead}><tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Role</th><th className="px-4 py-2">Email</th><th className="px-4 py-2">Action</th></tr></thead><tbody className={theme.textMain}>{usersList.map(u => (<tr key={u.id} className={`border-b ${theme.tableRow}`}><td className="px-4 py-2 font-bold">{u.name}</td><td className="px-4 py-2 uppercase text-xs font-bold text-blue-500">{u.role}</td><td className={`px-4 py-2 ${theme.textSub}`}>{u.email}</td><td className="px-4 py-2 flex gap-2"><button onClick={()=>handleResetPassword(u.id, u.name)} className="bg-yellow-500/10 text-yellow-500 px-2 py-1 rounded text-xs font-bold border border-yellow-500/30 hover:bg-yellow-500 hover:text-black">RESET PASS</button><button onClick={()=>handleDeleteUser(u.id)} className="bg-red-500/10 text-red-500 px-2 py-1 rounded text-xs font-bold border border-red-500/30 hover:bg-red-500 hover:text-white">REVOKE</button></td></tr>))}</tbody></table>
                     </div>
                 </div>
             </div>
         )}
 
-        {/* ================= TAB 6: REPORTS (FULL WRAPPED) ================= */}
+        {/* ================= TAB 6: REPORTS (FULL) ================= */}
         {activeTab === 'REPORTS' && (
             <div className="space-y-6 animate-in fade-in">
                 <div className={`p-8 rounded-xl border text-center ${theme.card}`}>
