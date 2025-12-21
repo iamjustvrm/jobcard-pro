@@ -6,15 +6,16 @@ import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, d
 import { onAuthStateChanged, signOut } from 'firebase/auth'; 
 import { db, auth } from '../../firebase';
 
-// 📋 MASTER DATA CONSTANTS (PRESERVED)
+// 📋 MASTER DATA CONSTANTS (PRESERVED V51)
 const INVENTORY_ITEMS = ["Spare Wheel", "Jack & Rod", "Tool Kit", "Stereo Faceplate", "Mud Flaps", "Floor Mats", "God Idol / Perfume", "Manual / Service Book"];
 const BODY_PANELS = ["Front Bumper", "Rear Bumper", "Bonnet", "Roof", "Left Doors", "Right Doors", "Tailgate", "Windshield"];
 const WARNING_LIGHTS = ["Check Engine", "ABS", "Airbag", "Battery", "Oil Pressure", "Coolant Temp", "DEF"];
 const FUEL_TYPES = ["Petrol", "Diesel", "Electric (EV)", "CNG / Hybrid"];
 const BODY_TYPES = ["Hatchback", "Sedan", "SUV", "Luxury", "Commercial"];
 const SERVICE_TYPES = ["PMS (Periodic Service)", "Running Repair", "Accidental", "Breakdown", "Warranty Check"];
-// 🛡️ EXISTING CONSTANT USED AS FALLBACK
-const TECHNICIANS = ["Raju Mechanic", "John Doe", "Electrical Specialist", "General Technician"];
+
+// 🛡️ FALLBACK TECHS (Safety Net for DB Errors)
+const FALLBACK_TECHNICIANS = ["General Technician", "Senior Mechanic", "Electrician", "Raju Mechanic"];
 
 const USAGE_PROFILES = [
   { label: "🐢 Low (School/Shop ~15km/day)", value: "LOW" },
@@ -23,7 +24,7 @@ const USAGE_PROFILES = [
   { label: "🚕 Commercial (Taxi ~200km/day)", value: "COMMERCIAL" }
 ];
 
-// 🧠 AI RULES (PRESERVED)
+// 🧠 AI RULES (ENRICHED WITH PARTS FOR UPSELL)
 const AI_RULES = [
   { keywords: ["brake", "noise", "grinding", "squeak", "pad", "disc"], tasks: ["Inspect Brake Pads (Front/Rear)", "Check Disc Rotor condition", "Bleed Brake Fluid"], parts: ["Brake Pads", "Brake Shoe", "Disc Rotor", "Brake Fluid"] },
   { keywords: ["ac", "cooling", "hot", "smell", "compressor"], tasks: ["Check AC Gas Pressure", "Inspect Cabin Filter", "Check Compressor Clutch"], parts: ["AC Gas (R134a)", "Cabin Filter", "Compressor Oil"] },
@@ -45,10 +46,10 @@ export default function SupervisorDashboard() {
   const [selectedJobId, setSelectedJobId] = useState(null); 
   const [isEditing, setIsEditing] = useState(false);
 
-  // 🆕 V88.5 ADDITIONS:
-  const [usersList, setUsersList] = useState([]); // For Live Team Sync
-  const [stagingItems, setStagingItems] = useState([]); // For PMS Auto-Fill
-  const [upsellSuggestions, setUpsellSuggestions] = useState([]); // For AI Suggestions
+  // 🆕 V89 ADDITIONS (The Missing Pieces)
+  const [usersList, setUsersList] = useState([]); 
+  const [stagingItems, setStagingItems] = useState([]); 
+  const [upsellSuggestions, setUpsellSuggestions] = useState([]);
 
   // --- MASTER STATE ---
   const [formData, setFormData] = useState({
@@ -58,7 +59,7 @@ export default function SupervisorDashboard() {
     odometer: '', vin: '', engineNo: '', keyNo: '', batteryId: '',
     fuelLevel: '50', tyreCondition: 'OK',
     usageProfile: 'MEDIUM',
-    priority: 'NORMAL', // 🆕 Priority
+    priority: 'NORMAL', // 🆕 Sentiment
     inventory: {}, warningLights: {}, bodyDamages: {}, 
     supervisorObs: '', 
     customerImages: '', voiceNoteLink: '', obdScanReport: '', 
@@ -87,7 +88,6 @@ export default function SupervisorDashboard() {
           const userDoc = await getDoc(doc(db, "users", currentUser.uid));
           if (userDoc.exists()) {
             const userData = userDoc.data();
-            // Expanded role check
             if (['admin', 'supervisor', 'technician', 'mechanic'].includes(userData.role?.toLowerCase())) {
               setUser({...currentUser, ...userData}); 
               setLoading(false);
@@ -107,9 +107,7 @@ export default function SupervisorDashboard() {
     const q = query(collection(db, "jobs"), orderBy("createdAt", "desc"));
     const unsub = onSnapshot(q, (snapshot) => {
       setJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (error) => {
-        console.warn("⚠️ Job Sync Paused (Check Permissions):", error.code);
-    });
+    }, (error) => console.warn("⚠️ Job Sync Limit/Error"));
     return () => unsub();
   }, []);
 
@@ -117,9 +115,7 @@ export default function SupervisorDashboard() {
     const q = query(collection(db, "inventory"), orderBy("name", "asc"));
     const unsub = onSnapshot(q, (snapshot) => {
       setInventoryDB(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (error) => {
-        console.warn("⚠️ Inventory Sync Paused:", error.code);
-    });
+    }, (error) => console.warn("⚠️ Inventory Sync Limit/Error"));
     return () => unsub();
   }, []);
 
@@ -128,52 +124,44 @@ export default function SupervisorDashboard() {
       try {
         const snap = await getDocs(collection(db, "obd_library"));
         setObdDB(snap.docs.map(d => d.data()));
-      } catch (e) { console.warn("OBD Library inaccessible"); }
+      } catch (e) { console.warn("OBD Offline"); }
     };
     fetchOBD();
   }, []);
 
-  // 🆕 V88.5: TEAM SYNC WITH PERMISSION SHIELD 🛡️
+  // 🆕 V89: TEAM SYNC WITH PERMISSION SHIELD 🛡️
   useEffect(() => {
     const q = query(collection(db, "users"));
     const unsub = onSnapshot(q, (snapshot) => {
         setUsersList(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     }, (error) => {
-        // THIS CATCHES THE "PERMISSION-DENIED" CRASH
-        console.warn("⚠️ Team Sync Blocked by Rules. Switching to Offline Mode.");
-        // We will fallback to TECHNICIANS constant automatically
+        console.warn("⚠️ Team Sync Blocked. Switching to Offline Mode.");
+        // App continues using FALLBACK_TECHNICIANS
     });
     return () => unsub();
   }, []);
 
-  // 🆕 V88.5: PMS AUTO-ALLOCATION ENGINE 🧠
+  // 🆕 V89: GENIUS PMS AUTO-ALLOCATION 🧠
   useEffect(() => {
-      if (activeTab === 'NEW_ENTRY' && formData.serviceType.includes('PMS')) {
-          // Normalize Inputs
-          const currentFuel = (formData.fuelType || '').toLowerCase();
-          const currentBody = (formData.bodyType || '').toLowerCase();
-
+      if (activeTab === 'NEW_ENTRY' && formData.serviceType.toLowerCase().includes('pms')) {
           const pmsMatches = inventoryDB.filter(item => {
-              const tags = (item.tags || []).map(t => t.toLowerCase());
+              const tags = (item.tags || []).map(t => t.toLowerCase()); 
               const name = item.name.toLowerCase();
+              const fuel = (formData.fuelType || '').toLowerCase();
+              const body = (formData.bodyType || '').toLowerCase();
               
-              // 1. Must be PMS related
               const isPMSTagged = tags.includes('pms');
-              
-              // 2. Must match Car OR be Universal
-              const matchesFuel = tags.includes(currentFuel) || name.includes(currentFuel);
-              const matchesBody = tags.includes(currentBody) || name.includes(currentBody);
+              const matchesFuel = tags.includes(fuel) || name.includes(fuel);
+              const matchesBody = tags.includes(body) || name.includes(body);
               const isUniversal = tags.includes('universal') || (!tags.includes('petrol') && !tags.includes('diesel'));
 
               return isPMSTagged && (matchesFuel || matchesBody || isUniversal);
           });
 
-          // Prepare Staging Data
           const staged = pmsMatches.map(item => ({
               ...item,
               status: (Number(item.stock) || 0) > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK',
-              // SUV gets 6L oil, others 4L (Simple Heuristic)
-              suggestedQty: item.name.toLowerCase().includes('oil') && currentBody === 'suv' ? 6 : 1
+              suggestedQty: item.name.toLowerCase().includes('oil') && formData.bodyType === 'SUV' ? 6 : 1
           }));
           setStagingItems(staged);
       } else {
@@ -200,13 +188,15 @@ export default function SupervisorDashboard() {
 
   const handleLogout = async () => { await signOut(auth); router.push('/'); };
 
+  // 🆕 V89: CLOCK IN
   const toggleShift = async () => {
       if(!user) return;
       const newStatus = user.attendance === 'PRESENT' ? 'ABSENT' : 'PRESENT';
-      setUser({...user, attendance: newStatus}); // Optimistic Update
+      setUser({...user, attendance: newStatus});
       try {
         await updateDoc(doc(db, "users", user.uid), { attendance: newStatus });
-      } catch (e) { console.warn("Offline attendance toggle"); }
+        alert(newStatus === 'PRESENT' ? "🟢 Clocked IN" : "🔴 Clocked OUT");
+      } catch (e) { alert("⚠️ Offline: Attendance recorded locally."); }
   };
 
   const getTATStatus = (promisedTime) => {
@@ -326,7 +316,7 @@ export default function SupervisorDashboard() {
     setNewItem({ category: 'PART', desc: '', qty: 1, price: 0 });
   };
 
-  // 🆕 V88.5: REMOVE ITEM (CORRECTION)
+  // 🆕 V89: REMOVE ITEM (CORRECTION)
   const removeItem = async (jobId, type, itemId) => {
       if(!confirm("Remove this item?")) return;
       const job = jobs.find(j => j.id === jobId);
@@ -335,7 +325,7 @@ export default function SupervisorDashboard() {
       await updateDoc(doc(db, "jobs", jobId), { [field]: updatedList });
   };
 
-  // 🆕 V88.5: ADD STAGED ITEM (FROM AI)
+  // 🆕 V89: ADD STAGED ITEM (FROM AI)
   const addStagedItem = (item) => {
       const isProcure = item.status === 'OUT_OF_STOCK';
       const newItemEntry = {
@@ -374,7 +364,9 @@ export default function SupervisorDashboard() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if(!formData.regNo) { alert("⚠️ Registration Number is Missing!"); return; }
+    // 🆕 V89: TECH CHECK (Allow Fallbacks)
     if(!formData.technicianName) { alert("⚠️ Technician Required!"); return; }
+    
     const payload = { ...formData, vehicleNumber: formData.regNo, technicianName: formData.technicianName, createdAt: isEditing ? formData.createdAt : serverTimestamp() };
     try {
       if(isEditing) {
@@ -393,21 +385,23 @@ export default function SupervisorDashboard() {
 
   const deleteJob = async (id) => { if(confirm("Delete?")) await deleteDoc(doc(db, "jobs", id)); };
   
-  // 🆕 V88.5: WHATSAPP FORMATTED FIX
+  // 🆕 V89: WHATSAPP CLEAN ALIGNMENT (URL ENCODED)
   const sendWhatsApp = (job) => {
     if(!job.customerPhone) { alert("⚠️ No Customer Phone Number Found!"); return; }
     
     const total = (job.parts?.reduce((a,b)=>a+b.total,0)||0) + (job.labor?.reduce((a,b)=>a+b.total,0)||0) + (job.expenses?.reduce((a,b)=>a+Number(b.amount),0)||0);
     const damageCount = Object.keys(job.bodyDamages||{}).length;
     
-    // EXPLICIT %0A for LINE BREAKS
-    const message = `🚗 *JobCard Pro - Service Estimate*%0A%0A*Vehicle:* ${job.model} (${job.regNo})%0A*Customer:* ${job.customerName}%0A%0A🔎 *PRE-SERVICE INSPECTION:*%0A• Tech Obs: ${job.supervisorObs || 'Standard Check'}%0A• Fuel: ${job.fuelLevel}% | Tyres: ${job.tyreCondition}%0A• Damages: ${damageCount} Panels Marked%0A• Photos Attached: ${job.inspectionPhotos?.length || 0}%0A%0A💰 *ESTIMATE:*%0A• Parts: ₹${job.parts?.reduce((a,b)=>a+b.total,0)||0}%0A• Labor: ₹${job.labor?.reduce((a,b)=>a+b.total,0)||0}%0A%0A*TOTAL: ₹${total}*%0A%0AReply APPROVE to start work.`;
+    // Explicit Line Breaks with %0A
+    const message = 
+`🚗 *JobCard Pro - Service Estimate*%0A%0A*Vehicle:* ${job.model} (${job.regNo})%0A*Customer:* ${job.customerName}%0A%0A🔎 *PRE-SERVICE INSPECTION:*%0A• Tech Obs: ${job.supervisorObs || 'Standard Check'}%0A• Fuel: ${job.fuelLevel}% | Tyres: ${job.tyreCondition}%0A• Damages: ${damageCount} Panels Marked%0A• Photos Attached: ${job.inspectionPhotos?.length || 0}%0A%0A💰 *ESTIMATE:*%0A• Parts: ₹${job.parts?.reduce((a,b)=>a+b.total,0)||0}%0A• Labor: ₹${job.labor?.reduce((a,b)=>a+b.total,0)||0}%0A%0A*TOTAL: ₹${total}*%0A%0AReply APPROVE to start work.`;
+
     const cleanPhone = job.customerPhone.replace(/\D/g, '').slice(-10); 
-    const url = `https://wa.me/91${cleanPhone}?text=${message}`;
+    const url = `https://wa.me/91${cleanPhone}?text=${message}`; // No encodeURIComponent for message to keep %0A working
     window.open(url, '_blank');
   };
 
-  // 🆕 V88.5: ROBUST PRINT
+  // 🆕 V89: PRINT FIX
   const printJobCard = () => { 
       if(!selectedJobId) { alert("Select a Job First!"); return; }
       window.print(); 
@@ -433,7 +427,7 @@ export default function SupervisorDashboard() {
     <div className="min-h-screen bg-slate-900 text-white font-sans pb-20 print:bg-white print:text-black">
       {/* NAVBAR */}
       <div className="print:hidden bg-slate-800 border-b border-slate-700 sticky top-0 z-50 shadow-xl p-4 flex justify-between items-center">
-        <h1 className="text-xl md:text-2xl font-black text-blue-500">JOB<span className="text-white">CARD</span> <span className="text-xs text-slate-500">V88.5 STABLE</span></h1>
+        <h1 className="text-xl md:text-2xl font-black text-blue-500">JOB<span className="text-white">CARD</span> <span className="text-xs text-slate-500">V89 PLATINUM</span></h1>
         <div className="flex gap-4 items-center">
            {/* CLOCK IN BUTTON */}
            <button onClick={toggleShift} className={`hidden md:block px-3 py-1 rounded text-xs font-bold border transition-all ${user?.attendance === 'PRESENT' ? 'bg-green-600 border-green-500 text-white shadow-[0_0_10px_lime]' : 'bg-slate-700 border-slate-500 text-slate-400'}`}>
@@ -456,7 +450,7 @@ export default function SupervisorDashboard() {
           <div className="max-w-5xl mx-auto bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden">
             <div className={`p-6 border-b border-slate-700 flex justify-between items-center ${isEditing ? 'bg-blue-900' : 'bg-slate-900'}`}>
                <h2 className="text-xl font-bold text-white">{isEditing ? '✏️ EDITING VEHICLE ENTRY' : 'New Vehicle Intake'}</h2>
-               {/* SENTIMENT SELECTOR */}
+               {/* 🆕 V89: SENTIMENT SELECTOR */}
                <select className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs font-bold" value={formData.priority} onChange={e => updateForm('priority', e.target.value)}>
                    <option value="NORMAL">🙂 Standard</option>
                    <option value="VIP">⭐ VIP Customer</option>
@@ -485,7 +479,7 @@ export default function SupervisorDashboard() {
                 <div className="grid grid-cols-2 gap-4"><input placeholder="Variant" className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.variant} onChange={e => updateForm('variant', e.target.value)} /><input placeholder="Color" className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.color} onChange={e => updateForm('color', e.target.value)} /></div>
                 <div className="grid grid-cols-2 gap-4"><input required type="number" placeholder="Odometer" className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.odometer} onChange={e => updateForm('odometer', e.target.value)} /><select className="bg-slate-900 border border-slate-600 rounded-lg p-4" value={formData.serviceType} onChange={e => updateForm('serviceType', e.target.value)}>{SERVICE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
  
-                {/* 🆕 V88.5: SMART STAGING AREA (PMS + UPSELLS) */}
+                {/* 🆕 V89: SMART STAGING AREA */}
                 {(stagingItems.length > 0 || upsellSuggestions.length > 0) && (
                     <div className="bg-slate-900/80 border-l-4 border-yellow-500 p-4 rounded-lg space-y-3">
                         <div className="flex justify-between items-center"><h4 className="font-bold text-yellow-400 text-xs uppercase flex items-center gap-2">✨ AI Recommendations & Staging</h4></div>
@@ -557,7 +551,7 @@ export default function SupervisorDashboard() {
                     <label className="text-xs font-bold text-yellow-500 uppercase">Assign Technician: {formData.technicianName ? `✅ ${formData.technicianName}` : '❌ NONE'}</label>
                     <div className="flex gap-4">
                        <div className="flex-grow flex gap-1">
-                           {/* 🆕 V88.5: ROBUST TECH DROPDOWN WITH FALLBACKS */}
+                           {/* 🆕 V89: ROBUST TECH DROPDOWN WITH FALLBACKS */}
                            <select required className="flex-grow bg-slate-900 border border-slate-600 rounded-lg p-4 font-bold text-white focus:border-green-500" value={formData.technicianName} onChange={e => updateForm('technicianName', e.target.value)}>
                                <option value="">-- Select Technician --</option>
                                {/* DB Users (if available) */}
@@ -565,7 +559,7 @@ export default function SupervisorDashboard() {
                                    <option key={tech.id} value={tech.name}>{tech.name} {tech.attendance === 'PRESENT' ? '🟢' : '⚪'}</option>
                                ))}
                                {/* Fallbacks (always available) */}
-                               {TECHNICIANS.map(t => <option key={t} value={t}>[Manual] {t}</option>)}
+                               {FALLBACK_TECHNICIANS.map(t => <option key={t} value={t}>[Manual] {t}</option>)}
                            </select>
                        </div>
                        <button type="submit" className={`w-1/3 text-white rounded-xl font-bold text-lg shadow-lg ${isEditing ? 'bg-blue-600 hover:bg-blue-500' : 'bg-green-600 hover:bg-green-500'}`}>{isEditing ? '🔄 UPDATE JOB' : 'CREATE JOB'}</button>
@@ -646,7 +640,7 @@ export default function SupervisorDashboard() {
                     <div className="space-y-6">
                       <h2 className="text-xl font-black border-b border-slate-700 pb-2">{job.regNo || job.vehicleNumber}</h2>
                       
-                      {/* V88.5: VEHICLE VITALS BOX */}
+                      {/* V89: VEHICLE VITALS BOX */}
                       <div className="grid grid-cols-2 gap-2 text-xs bg-black/30 p-2 rounded border border-slate-700/50">
                           <div><div className="text-[9px] text-slate-500">ODOMETER</div><div className="font-mono font-bold text-white">{job.odometer} KM</div></div>
                           <div><div className="text-[9px] text-slate-500">FUEL</div><div className="font-mono font-bold text-white">{job.fuelLevel}%</div></div>
@@ -708,7 +702,7 @@ export default function SupervisorDashboard() {
                                     <span>{p.desc} (x{p.qty})</span>
                                     <div className="flex items-center gap-2">
                                         <span>₹{p.total}</span>
-                                        {/* 🆕 V88.5: REMOVE BUTTON */}
+                                        {/* 🆕 V89: REMOVE BUTTON */}
                                         <button onClick={() => removeItem(job.id, 'PART', p.id)} className="text-red-500 hover:text-red-400 font-bold">❌</button>
                                     </div>
                                 </div>
@@ -718,7 +712,7 @@ export default function SupervisorDashboard() {
                                     <span>{l.desc}</span>
                                     <div className="flex items-center gap-2">
                                         <span>₹{l.total}</span>
-                                        {/* 🆕 V88.5: REMOVE BUTTON */}
+                                        {/* 🆕 V89: REMOVE BUTTON */}
                                         <button onClick={() => removeItem(job.id, 'LABOR', l.id)} className="text-red-500 hover:text-red-400 font-bold">❌</button>
                                     </div>
                                 </div>

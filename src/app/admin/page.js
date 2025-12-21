@@ -27,11 +27,12 @@ export default function AdminDashboard() {
 
   // --- HR STATE ---
   const [attendance, setAttendance] = useState({});
+  // 🆕 V91: EDITING STATE FOR USERS
+  const [editingUser, setEditingUser] = useState(null); // Holds the user object being edited
 
-  // --- FORMS (V85 Updated) ---
-  // Added: buyingPrice, tags, bulkText
+  // --- FORMS ---
   const [newItem, setNewItem] = useState({ name: '', buyingPrice: '', sellingPrice: '', stock: '', category: 'General', tags: [] });
-  const [bulkText, setBulkText] = useState(''); // For CSV Paste
+  const [bulkText, setBulkText] = useState(''); 
   const [newUser, setNewUser] = useState({ email: '', password: 'password123', role: 'technician', name: '' });
 
   // 1. SECURITY
@@ -95,8 +96,12 @@ export default function AdminDashboard() {
       }
   };
 
-  const getStatusBorder = (status) => {
-      switch(status) {
+  const getStatusBorder = (job) => {
+      if (job.priority === 'ESCALATED') return 'border-l-red-600 animate-pulse ring-2 ring-red-500';
+      if (job.priority === 'VIP') return 'border-l-yellow-400 ring-1 ring-yellow-500';
+      if (job.priority === 'URGENT') return 'border-l-orange-500 animate-pulse';
+
+      switch(job.status) {
           case 'READY': return 'border-l-green-500';
           case 'WORK_IN_PROGRESS': return 'border-l-blue-500';
           case 'WORK_PAUSED':
@@ -106,13 +111,15 @@ export default function AdminDashboard() {
       }
   };
 
-  // 🆕 PRIORITY TAGS
   const getJobPriority = (job) => {
       const total = (Array.isArray(job.parts) ? job.parts.reduce((a,b)=>a+(Number(b.total)||0),0) : 0) + 
                     (Array.isArray(job.labor) ? job.labor.reduce((a,b)=>a+(Number(b.total)||0),0) : 0);
       const tags = [];
-      if (total > 10000) tags.push({ icon: '⭐', label: 'VIP', color: 'text-yellow-400' });
-      if (job.status === 'WORK_PAUSED' || job.status === 'WAITING_PARTS') tags.push({ icon: '🔥', label: 'URGENT', color: 'text-red-500 animate-pulse' });
+      if (job.priority === 'VIP') tags.push({ icon: '⭐', label: 'VIP', color: 'text-yellow-400' });
+      if (job.priority === 'ESCALATED') tags.push({ icon: '😡', label: 'ANGRY', color: 'text-red-600 animate-bounce' });
+      if (job.priority === 'URGENT') tags.push({ icon: '🔥', label: 'URGENT', color: 'text-orange-500 animate-pulse' });
+      if (total > 15000 && job.priority !== 'VIP') tags.push({ icon: '💎', label: 'High Value', color: 'text-blue-300' });
+      if (job.status === 'WORK_PAUSED' || job.status === 'WAITING_PARTS') tags.push({ icon: '⚠️', label: 'Stuck', color: 'text-red-400' });
       return tags;
   };
 
@@ -132,11 +139,9 @@ export default function AdminDashboard() {
   const getScientificData = () => {
       const now = new Date();
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      
       const activeJobs = jobs.filter(j => j.status !== 'DELIVERED');
       const jobsToday = jobs.filter(j => j.createdAt?.seconds * 1000 > startOfDay.getTime());
       const deliveredToday = jobs.filter(j => j.status === 'DELIVERED' && (j.updatedAt?.seconds * 1000 > startOfDay.getTime())); 
-
       const shopOpenHours = 9; 
       const hoursPassed = Math.max(1, Math.min(new Date().getHours() - 9, shopOpenHours));
       const revenueToday = jobsToday.reduce((sum, job) => {
@@ -146,34 +151,20 @@ export default function AdminDashboard() {
       }, 0);
       const rph = Math.round(revenueToday / hoursPassed);
       const rphTarget = 5000; 
-
       let whales = 0, standard = 0, minnows = 0;
       activeJobs.forEach(job => {
           const total = (job.parts?.reduce((a,b)=>a+(Number(b.total)||0),0)||0) + (job.labor?.reduce((a,b)=>a+(Number(b.total)||0),0)||0);
-          if (total > 10000) whales++;
-          else if (total > 2000) standard++;
-          else minnows++;
+          if (total > 10000) whales++; else if (total > 2000) standard++; else minnows++;
       });
-
       const pausedJobs = activeJobs.filter(j => j.status === 'WORK_PAUSED' || j.status === 'WAITING_PARTS');
       let criticalPause = 0;
       pausedJobs.forEach(j => { if (Math.random() > 0.5) criticalPause++; }); 
-
       const laborPercent = financials.totalRevenue > 0 ? Math.round((financials.totalLabor / financials.totalRevenue) * 100) : 0;
       const avgTicket = jobs.length > 0 ? Math.round(financials.totalRevenue / jobs.length) : 0;
       const working = activeJobs.filter(j => j.status === 'WORK_IN_PROGRESS').length;
       const estimate = activeJobs.filter(j => j.status === 'ESTIMATE').length;
       const ready = activeJobs.filter(j => j.status === 'READY').length;
-
-      return {
-          rph, rphTarget,
-          inCount: jobsToday.length, outCount: deliveredToday.length,
-          whales, standard, minnows,
-          pausedTotal: pausedJobs.length, criticalPause,
-          activeCount: activeJobs.length,
-          laborPercent, avgTicket,
-          working, estimate, ready
-      };
+      return { rph, rphTarget, inCount: jobsToday.length, outCount: deliveredToday.length, whales, standard, minnows, pausedTotal: pausedJobs.length, criticalPause, activeCount: activeJobs.length, laborPercent, avgTicket, working, estimate, ready };
   };
   const sciData = getScientificData();
 
@@ -184,20 +175,13 @@ export default function AdminDashboard() {
         const tech = job.technicianName || 'Unassigned';
         if(!stats[tech]) stats[tech] = { name: tech, jobsCount: 0, activeNow: null, laborRevenue: 0, status: 'IDLE', efficiency: 0 };
         const jobLabor = Array.isArray(job.labor) ? job.labor.reduce((a,b)=>a+(Number(b.total)||0),0) : 0;
-        if(job.status === 'READY' || job.status === 'DELIVERED') {
-            stats[tech].jobsCount += 1; stats[tech].laborRevenue += jobLabor; 
-        }
-        if(job.status === 'WORK_IN_PROGRESS') {
-            stats[tech].activeNow = job.regNo; stats[tech].status = 'WORKING'; stats[tech].activeModel = job.model;
-        } else if (job.status === 'WORK_PAUSED') {
-            stats[tech].activeNow = `${job.regNo} (Paused)`; stats[tech].status = 'PAUSED'; stats[tech].activeModel = job.model;
-        }
+        if(job.status === 'READY' || job.status === 'DELIVERED') { stats[tech].jobsCount += 1; stats[tech].laborRevenue += jobLabor; }
+        if(job.status === 'WORK_IN_PROGRESS') { stats[tech].activeNow = job.regNo; stats[tech].status = 'WORKING'; stats[tech].activeModel = job.model; } 
+        else if (job.status === 'WORK_PAUSED') { stats[tech].activeNow = `${job.regNo} (Paused)`; stats[tech].status = 'PAUSED'; stats[tech].activeModel = job.model; }
     });
     return Object.values(stats).filter(s => s.name !== 'Unassigned').map(s => {
         s.efficiency = s.jobsCount > 0 ? Math.round(s.laborRevenue / s.jobsCount) : 0;
-        if(s.laborRevenue > 50000) s.rank = 'MASTER';
-        else if (s.laborRevenue > 20000) s.rank = 'SENIOR';
-        else s.rank = 'JUNIOR';
+        if(s.laborRevenue > 50000) s.rank = 'MASTER'; else if (s.laborRevenue > 20000) s.rank = 'SENIOR'; else s.rank = 'JUNIOR';
         return s;
     }).sort((a,b) => b.laborRevenue - a.laborRevenue);
   };
@@ -206,52 +190,36 @@ export default function AdminDashboard() {
   // DASHBOARD LISTS
   const getDashboardLists = () => {
       const activeJobs = jobs.filter(j => j.status !== 'DELIVERED');
-      const richTechStatus = usersList.filter(u => u.role === 'technician').map(u => {
+      const procurementNeeded = [];
+      activeJobs.forEach(job => {
+          if (job.parts) {
+              job.parts.forEach(part => {
+                  if (part.desc.includes('(PROCURE)') || part.desc.includes('TO_BE_ARRANGED')) {
+                      procurementNeeded.push({ jobId: job.id, regNo: job.regNo, partName: part.desc, model: job.model });
+                  }
+              });
+          }
+      });
+      const richTechStatus = usersList.filter(u => ['technician','mechanic','senior technician','junior technician'].includes(u.role?.toLowerCase()) || u.role?.toLowerCase().includes('technician')).map(u => {
           const stats = teamStats.find(t => t.name === u.name) || { rank: 'JUNIOR', efficiency: 0 };
           const activeJob = activeJobs.find(j => j.technicianName === u.name && j.status === 'WORK_IN_PROGRESS');
-          return {
-              name: u.name,
-              status: activeJob ? 'BUSY' : 'IDLE',
-              car: activeJob ? activeJob.regNo : '-',
-              model: activeJob ? activeJob.model : 'No Job Assigned',
-              rank: stats.rank,
-              efficiency: stats.efficiency
-          };
+          return { name: u.name, status: activeJob ? 'BUSY' : 'IDLE', car: activeJob ? activeJob.regNo : '-', model: activeJob ? activeJob.model : 'No Job Assigned', rank: stats.rank, efficiency: stats.efficiency };
       });
-
-      return {
-          pendingParts: activeJobs.filter(j => j.status === 'WORK_PAUSED' || j.status === 'WAITING_PARTS'),
-          pendingEstimates: activeJobs.filter(j => j.status === 'ESTIMATE'),
-          lowStock: inventory.filter(i => (Number(i.stock) || 0) < 5),
-          techStatus: richTechStatus
-      };
+      return { pendingParts: activeJobs.filter(j => j.status === 'WORK_PAUSED' || j.status === 'WAITING_PARTS'), pendingEstimates: activeJobs.filter(j => j.status === 'ESTIMATE'), lowStock: inventory.filter(i => (Number(i.stock) || 0) < 5), techStatus: richTechStatus, procurementNeeded };
   };
   const lists = getDashboardLists();
 
   // --- V85 INVENTORY INTELLIGENCE ---
-  
-  // 1. AUTO TAGGER
   const autoTagItem = (name) => {
       const tags = [];
       const n = name.toLowerCase();
-      
-      // Fuel
-      if(n.includes('diesel')) tags.push('Diesel');
-      else if(n.includes('petrol')) tags.push('Petrol');
-      
-      // Class
-      if(n.includes('suv') || n.includes('fortuner') || n.includes('creta')) tags.push('SUV');
-      if(n.includes('sedan') || n.includes('city') || n.includes('verna')) tags.push('Sedan');
-      if(n.includes('hatch') || n.includes('swift') || n.includes('i20')) tags.push('Hatchback');
-
-      // Category
-      if(n.includes('oil') || n.includes('filter') || n.includes('coolant')) tags.push('PMS');
-      if(n.includes('brake') || n.includes('pad') || n.includes('wiper')) tags.push('Wear & Tear');
-
+      if(n.includes('diesel')) tags.push('Diesel'); else if(n.includes('petrol')) tags.push('Petrol');
+      if(n.includes('suv') || n.includes('fortuner')) tags.push('SUV');
+      if(n.includes('hatch') || n.includes('swift')) tags.push('Hatchback');
+      if(n.includes('oil') || n.includes('filter')) tags.push('PMS');
       return tags;
   };
 
-  // 2. MARGIN CALCULATOR
   const calculateMargin = (buy, sell) => {
       const b = Number(buy) || 0;
       const s = Number(sell) || 0;
@@ -261,52 +229,36 @@ export default function AdminDashboard() {
       return { profit, percent };
   };
 
-  // 3. HANDLERS
   const handleNameChange = (e) => {
       const name = e.target.value;
       const suggestedTags = autoTagItem(name);
-      // Merge unique tags
       const newTags = [...new Set([...newItem.tags, ...suggestedTags])];
       setNewItem({ ...newItem, name: name, tags: newTags });
   };
 
   const handleTagClick = (tag) => {
-      if(newItem.tags.includes(tag)) {
-          setNewItem({...newItem, tags: newItem.tags.filter(t => t !== tag)});
-      } else {
-          setNewItem({...newItem, tags: [...newItem.tags, tag]});
-      }
+      if(newItem.tags.includes(tag)) { setNewItem({...newItem, tags: newItem.tags.filter(t => t !== tag)}); } 
+      else { setNewItem({...newItem, tags: [...newItem.tags, tag]}); }
   };
 
   const handleAddItem = async () => {
     if(!newItem.name || !newItem.sellingPrice) return alert("Name & Selling Price Required!");
-    
-    // Use price field for sellingPrice to maintain backward compatibility
-    await addDoc(collection(db, "inventory"), { 
-        ...newItem, 
-        price: Number(newItem.sellingPrice), // Main compatibility
-        buyingPrice: Number(newItem.buyingPrice) || 0,
-        stock: Number(newItem.stock) 
-    });
+    await addDoc(collection(db, "inventory"), { ...newItem, price: Number(newItem.sellingPrice), buyingPrice: Number(newItem.buyingPrice) || 0, stock: Number(newItem.stock) });
     setNewItem({ name: '', buyingPrice: '', sellingPrice: '', stock: '', category: 'General', tags: [] });
   };
 
   const handleBulkParse = () => {
-      // Simulate "Genius" Parse
       const lines = bulkText.split('\n');
       let count = 0;
       lines.forEach(async (line) => {
-          const parts = line.split(','); // CSV: Name,Buy,Sell,Stock
+          const parts = line.split(','); 
           if(parts.length >= 3) {
               const name = parts[0].trim();
               const buy = Number(parts[1]) || 0;
               const sell = Number(parts[2]) || 0;
               const stock = Number(parts[3]) || 0;
               const tags = autoTagItem(name);
-              
-              await addDoc(collection(db, "inventory"), {
-                  name, buyingPrice: buy, price: sell, stock, tags, category: 'Bulk Import'
-              });
+              await addDoc(collection(db, "inventory"), { name, buyingPrice: buy, price: sell, stock, tags, category: 'Bulk Import' });
               count++;
           }
       });
@@ -318,10 +270,26 @@ export default function AdminDashboard() {
   
   const handleCreateUser = async () => {
       if(!newUser.email) return;
-      await addDoc(collection(db, "users"), newUser); 
+      const sanitizedUser = { ...newUser, role: newUser.role.toLowerCase() };
+      await addDoc(collection(db, "users"), sanitizedUser); 
       alert(`User ${newUser.name} Added!`);
       setNewUser({ email: '', password: 'password123', role: 'technician', name: '' });
   };
+
+  // 🆕 V91: SYNC USER DATA
+  const handleUpdateUser = async () => {
+      if(!editingUser || !editingUser.name || !editingUser.role) return;
+      try {
+          await updateDoc(doc(db, "users", editingUser.id), {
+              name: editingUser.name,
+              email: editingUser.email,
+              role: editingUser.role.toLowerCase()
+          });
+          setEditingUser(null);
+          alert("✅ User Data Synced!");
+      } catch(e) { console.error(e); alert("Sync Error"); }
+  };
+
   const handleDeleteUser = async (id) => { if(confirm("Revoke Access?")) await deleteDoc(doc(db, "users", id)); };
 
   const handleResetPassword = async (id, currentName) => {
@@ -337,6 +305,26 @@ export default function AdminDashboard() {
 
   const toggleAttendance = (techName) => {
       setAttendance(prev => ({ ...prev, [techName]: prev[techName] === 'PRESENT' ? 'ABSENT' : 'PRESENT' }));
+  };
+
+  const downloadReport = (type) => {
+      const headers = ["Job ID", "Date", "Customer", "Phone", "Reg No", "Model", "Tech", "Status", "Parts Total", "Labor Total", "Grand Total", "Supervisor Notes"];
+      const rows = jobs.map(job => {
+          const pTotal = job.parts?.reduce((a,b)=>a+(Number(b.total)||0),0) || 0;
+          const lTotal = job.labor?.reduce((a,b)=>a+(Number(b.total)||0),0) || 0;
+          const dateStr = job.createdAt?.seconds ? new Date(job.createdAt.seconds * 1000).toLocaleDateString() : 'N/A';
+          const safe = (txt) => `"${(txt || '').toString().replace(/"/g, '""')}"`;
+          return [job.id, dateStr, safe(job.customerName), job.customerPhone, job.regNo, job.model, job.technicianName, job.status, pTotal, lTotal, pTotal+lTotal, safe(job.supervisorObs)].join(",");
+      });
+      if (type === 'PDF') { window.print(); return; }
+      const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + rows.join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `JOB_AUDIT_REPORT_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
   };
 
   const theme = {
@@ -359,7 +347,7 @@ export default function AdminDashboard() {
       <div className={`px-6 py-3 sticky top-0 z-50 border-b flex justify-between items-center print:hidden ${theme.header}`}>
         <div className="flex items-center gap-3">
             <h1 className="text-2xl font-black tracking-tighter text-blue-500">ADMIN<span className={theme.textMain}>HQ</span></h1>
-            <span className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-600/50">V85 SUPPLY-CHAIN</span>
+            <span className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-600/50">V91 HR-SYNC</span>
         </div>
         <div className="flex gap-3 items-center">
             <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-full transition-all ${darkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-slate-200 text-slate-600'}`}>{darkMode ? '☀️' : '🌑'}</button>
@@ -375,7 +363,7 @@ export default function AdminDashboard() {
 
       <div className="max-w-[1600px] mx-auto p-6">
 
-        {/* DASHBOARD TAB (V84) */}
+        {/* DASHBOARD TAB */}
         {activeTab === 'DASHBOARD' && (
             <div className="space-y-6 animate-in fade-in">
                 {/* 1. STRATEGIC ROW */}
@@ -399,7 +387,22 @@ export default function AdminDashboard() {
                 {/* 3. TACTICAL ROW */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className={`p-6 rounded-xl border ${theme.card}`}><h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-widest">👨‍🔧 Technician Live Floor</h3><div className="space-y-3 max-h-64 overflow-y-auto pr-1">{lists.techStatus.map((t, i) => (<div key={i} className={`p-3 rounded border flex flex-col gap-2 ${t.status === 'BUSY' ? 'border-green-500/20 bg-green-900/10' : 'border-slate-700 bg-slate-800/50'}`}><div className="flex justify-between items-center"><div className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${t.status === 'BUSY' ? 'bg-green-500 animate-pulse' : 'bg-slate-500'}`}></div><span className={`text-sm font-bold ${theme.textMain}`}>{t.name}</span><span className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-700 text-slate-300">{t.rank}</span></div><div className="flex gap-0.5">{[...Array(5)].map((_,x) => <div key={x} className={`w-1 h-2 rounded-sm ${x < (t.efficiency/200) ? 'bg-blue-500' : 'bg-slate-700'}`}></div>)}</div></div><div className="flex justify-between items-center border-t border-slate-700/50 pt-2"><span className={`text-xs font-mono font-bold ${t.status === 'BUSY' ? 'text-green-400' : 'text-slate-500'}`}>{t.car}</span><span className="text-[10px] text-slate-400 truncate max-w-[100px]">{t.model}</span></div></div>))}</div></div>
-                    <div className={`lg:col-span-2 p-6 rounded-xl border border-red-900/20 ${theme.card}`}><h3 className="text-xs font-bold uppercase text-red-400 mb-4 tracking-widest">⚙️ Supply Chain Blockers (Paused Cars)</h3><div className="overflow-x-auto max-h-64 overflow-y-auto"><table className="w-full text-sm text-left"><thead className="text-xs uppercase bg-slate-800/50 text-slate-400 sticky top-0"><tr><th className="p-2">Vehicle</th><th className="p-2">Tech</th><th className="p-2">Reason</th></tr></thead><tbody>{lists.pendingParts.length > 0 ? lists.pendingParts.map(job => (<tr key={job.id} className="border-b border-slate-700 hover:bg-slate-800/50"><td className={`p-2 font-bold ${theme.textMain}`}>{job.regNo} <span className="text-xs opacity-50 block">{job.model}</span></td><td className="p-2 text-slate-400">{job.technicianName}</td><td className="p-2 text-red-400 font-mono text-xs">{job.pauseReason || 'Waiting Parts'}</td></tr>)) : <tr><td colSpan="3" className="p-4 text-center text-slate-500 text-xs italic">Smooth Sailing!</td></tr>}</tbody></table></div></div>
+                    {/* PROCUREMENT ALERT */}
+                    <div className={`lg:col-span-2 p-6 rounded-xl border border-red-900/20 ${theme.card}`}>
+                        <h3 className="text-xs font-bold uppercase text-red-400 mb-4 tracking-widest flex items-center gap-2">⚙️ Supply Chain & Procurement {lists.procurementNeeded.length > 0 && <span className="bg-red-600 text-white px-2 py-0.5 rounded animate-pulse">{lists.procurementNeeded.length}</span>}</h3>
+                        <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                            <table className="w-full text-sm text-left"><thead className="text-xs uppercase bg-slate-800/50 text-slate-400 sticky top-0"><tr><th className="p-2">Part Name (To Arrange)</th><th className="p-2">Vehicle</th><th className="p-2">Action</th></tr></thead>
+                            <tbody>
+                                {lists.procurementNeeded.length > 0 ? lists.procurementNeeded.map((item, i) => (
+                                    <tr key={i} className="border-b border-slate-700 hover:bg-slate-800/50">
+                                        <td className="p-2 font-bold text-yellow-400">{item.partName.replace('(PROCURE)', '')}</td>
+                                        <td className={`p-2 ${theme.textMain}`}>{item.regNo} <span className="opacity-50 text-xs">({item.model})</span></td>
+                                        <td className="p-2"><button onClick={() => window.open(`https://wa.me/?text=Order request: ${item.partName} for ${item.regNo}`, '_blank')} className="bg-blue-600 px-2 py-1 rounded text-[10px] font-bold">📲 ORDER</button></td>
+                                    </tr>
+                                )) : <tr><td colSpan="3" className="p-4 text-center text-slate-500 text-xs italic">No Pending Orders.</td></tr>}
+                            </tbody></table>
+                        </div>
+                    </div>
                 </div>
                 {/* 4. REVENUE RECOVERY */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -409,108 +412,87 @@ export default function AdminDashboard() {
             </div>
         )}
 
-        {/* TEAM TAB (V81) */}
+        {/* TEAM TAB */}
         {activeTab === 'TEAM' && (<div className="space-y-6 animate-in slide-in-from-bottom-4"><div className={`rounded-xl p-8 border ${theme.card} relative overflow-hidden`}><div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-500 via-orange-500 to-red-500"></div><h2 className="text-2xl font-black mb-8 text-center text-yellow-500 uppercase tracking-widest flex items-center justify-center gap-2">🏆 Technician Leaderboard</h2><div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">{teamStats.slice(0, 3).map((tech, i) => (<div key={tech.name} className={`relative p-6 rounded-2xl border-2 flex flex-col items-center justify-center transform hover:scale-105 transition-all ${i === 0 ? 'border-yellow-500 bg-yellow-500/10 h-64 order-2 shadow-[0_0_30px_rgba(234,179,8,0.3)]' : i === 1 ? 'border-slate-400 bg-slate-400/10 h-56 order-1' : 'border-orange-700 bg-orange-700/10 h-48 order-3'}`}><div className="text-6xl mb-2 filter drop-shadow-xl">{i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</div><h3 className={`text-xl font-black uppercase text-center ${theme.textMain}`}>{tech.name}</h3><div className={`text-[10px] font-bold px-2 py-0.5 rounded border mb-2 ${tech.rank === 'MASTER' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500' : tech.rank === 'SENIOR' ? 'bg-slate-400/20 text-slate-300 border-slate-400' : 'bg-orange-700/20 text-orange-400 border-orange-700'}`}>{tech.rank}</div><div className="mt-auto text-center w-full"><div className="text-sm font-mono font-bold text-green-500 bg-black/30 rounded px-2 py-1 mb-1">{tech.jobsCount} Jobs</div><div className={`text-lg font-bold ${theme.textSub}`}>₹{(tech.laborRevenue || 0).toLocaleString()}</div></div></div>))}</div></div><div className="grid grid-cols-1 lg:grid-cols-2 gap-6"><div className={`rounded-xl p-6 border ${theme.card}`}><h3 className={`font-bold uppercase mb-4 ${theme.textSub}`}>⏱️ Digital Attendance Board</h3><div className="space-y-2">{teamStats.map(tech => (<div key={tech.name} className="flex justify-between items-center p-3 border border-slate-700 rounded bg-slate-800/30"><div className="flex items-center gap-3"><div className={`w-3 h-3 rounded-full ${attendance[tech.name] === 'PRESENT' ? 'bg-green-500 shadow-[0_0_10px_lime]' : 'bg-red-500'}`}></div><span className={`font-bold ${theme.textMain}`}>{tech.name}</span></div><button onClick={() => toggleAttendance(tech.name)} className={`text-[10px] font-bold px-3 py-1 rounded border transition-all ${attendance[tech.name] === 'PRESENT' ? 'bg-green-600 text-white border-green-500' : 'bg-slate-700 text-slate-400 border-slate-600'}`}>{attendance[tech.name] === 'PRESENT' ? 'PRESENT' : 'MARK PRESENT'}</button></div>))}</div></div><div className={`rounded-xl p-6 border ${theme.card}`}><h3 className={`font-bold uppercase mb-4 ${theme.textSub}`}>📊 Efficiency Scorecard</h3><div className="space-y-4">{teamStats.map(tech => (<div key={tech.name}><div className="flex justify-between text-xs mb-1"><span className={theme.textMain}>{tech.name} <span className="text-slate-500">({tech.rank})</span></span><span className="font-mono text-blue-400">Avg Ticket: ₹{tech.efficiency.toLocaleString()}</span></div><div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden"><div className={`h-full ${tech.efficiency > 500 ? 'bg-blue-500' : 'bg-yellow-500'}`} style={{width: `${Math.min(tech.efficiency / 100, 100)}%`}}></div></div></div>))}</div></div></div></div>)}
 
         {/* JOBS TAB */}
-        {activeTab === 'JOBS' && (<div className="grid grid-cols-12 gap-6 h-[85vh]"><div className={`col-span-12 lg:col-span-4 rounded-xl border overflow-hidden flex flex-col ${theme.card}`}><div className={`p-4 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} flex justify-between items-center`}><h3 className={`font-bold ${theme.textMain}`}>Fleet Manager</h3><input placeholder="Search..." className={`p-2 rounded text-xs w-1/2 font-mono ${theme.input}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div><div className="overflow-y-auto flex-grow"><table className="w-full text-sm text-left"><thead className={`${theme.tableHead} text-xs uppercase sticky top-0 z-10`}><tr><th className="px-4 py-3">Vehicle</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Total</th></tr></thead><tbody className={theme.textMain}>{jobs.filter(j => (j.regNo || '').includes(searchTerm.toUpperCase())).map(job => {const total = (Array.isArray(job.parts) ? job.parts.reduce((a,b)=>a+(Number(b.total)||0),0) : 0) + (Array.isArray(job.labor) ? job.labor.reduce((a,b)=>a+(Number(b.total)||0),0) : 0);const priorities = getJobPriority(job);return (<tr key={job.id} className={`border-b cursor-pointer transition-colors ${theme.tableRow} ${selectedJob?.id === job.id ? 'bg-blue-600/20 border-l-4 border-l-blue-500' : `border-l-4 ${getStatusBorder(job.status)}`}`} onClick={() => setSelectedJob(job)}><td className="px-4 py-3"><div className="flex items-center gap-1"><div className="font-bold font-mono">{job.regNo}</div>{priorities.map((p,i) => <span key={i} className={`text-[10px] ${p.color}`} title={p.label}>{p.icon}</span>)}</div><div className={`text-[10px] ${theme.textSub}`}>{job.model} • {job.customerName}</div></td><td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getStatusColor(job.status)}`}>{job.status}</span></td><td className="px-4 py-3 text-right font-mono font-bold text-xs">₹{total.toLocaleString()}</td></tr>)})}</tbody></table></div></div><div className={`col-span-12 lg:col-span-8 rounded-xl border flex flex-col shadow-2xl ${theme.card}`}>{selectedJob ? (<><div className={`p-6 border-b ${darkMode ? 'border-slate-700 bg-[#0f172a]' : 'border-slate-200 bg-white'} flex justify-between items-start`}><div><h1 className="text-4xl font-black font-mono tracking-tight text-blue-500">{selectedJob.regNo}</h1><div className="flex gap-3 mt-2 text-sm font-bold opacity-80"><span>{selectedJob.model}</span><span>•</span><span>{selectedJob.variant}</span><span>•</span><span className="bg-slate-700 px-2 rounded text-xs py-0.5">{selectedJob.fuelType}</span></div><div className="mt-4 flex items-center gap-2 bg-slate-800/50 p-2 rounded border border-slate-700 w-fit"><div className="text-[10px] uppercase text-slate-500 font-bold">Job ID:</div><code className="text-xs font-mono text-green-400">{selectedJob.id}</code><button onClick={() => copyToClipboard(`https://${window.location.host}/track/${selectedJob.id}`)} className="ml-auto bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded text-[10px] font-bold flex items-center gap-1 shadow-lg">🔗 COPY LINK</button></div></div><div className="text-right"><div className={`text-xs font-bold uppercase mb-1 ${theme.textSub}`}>Current Status</div><div className={`text-lg font-black px-3 py-1 rounded border ${getStatusColor(selectedJob.status)}`}>{selectedJob.status}</div><div className="mt-2"><button onClick={() => router.push(`/bill/${selectedJob.id}`)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-bold text-xs shadow-lg">📄 VIEW INVOICE</button><button onClick={(e) => {if(confirm("Delete Job Permanently?")) deleteDoc(doc(db, "jobs", selectedJob.id))}} className="ml-2 bg-red-900/30 text-red-500 border border-red-900 hover:bg-red-900 hover:text-white px-4 py-2 rounded font-bold text-xs">🗑️ DELETE</button></div></div></div><div className={`flex border-b ${darkMode ? 'border-slate-700 bg-[#1e293b]' : 'border-slate-200 bg-slate-50'}`}>{['INFO', 'TASKS', 'FINANCE', 'LOGS'].map(tab => (<button key={tab} onClick={() => setJobDetailTab(tab)} className={`flex-1 py-3 text-xs font-bold tracking-widest border-b-2 transition-all ${jobDetailTab === tab ? 'border-blue-500 text-blue-500 bg-blue-500/5' : 'border-transparent ' + theme.textSub}`}>{tab}</button>))}</div><div className="flex-grow overflow-y-auto p-6">{jobDetailTab === 'INFO' && (<div className="space-y-6"><div className="grid grid-cols-2 gap-6"><div className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}><h4 className="text-xs font-bold uppercase text-blue-500 mb-4">👤 Customer Profile</h4><div className="space-y-2 text-sm text-gray-300"><div className="flex justify-between"><span>Name:</span> <span className="font-bold text-white">{selectedJob.customerName}</span></div><div className="flex justify-between"><span>Phone:</span> <span className="font-mono">{selectedJob.customerPhone}</span></div>{selectedJob.email && <div className="flex justify-between"><span>Email:</span> <span className="font-mono text-xs">{selectedJob.email}</span></div>}<div className="flex justify-between border-t border-slate-700 pt-2 mt-2"><span>Billing Name:</span> <span>{selectedJob.billingName || '-'}</span></div><div className="flex justify-between"><span>GSTIN:</span> <span className="font-mono">{selectedJob.gstin || 'N/A'}</span></div>{selectedJob.address && <div className="mt-2 text-xs opacity-70">📍 {selectedJob.address}</div>}</div></div><div className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}><h4 className="text-xs font-bold uppercase text-purple-500 mb-4">🚗 Technical DNA</h4><div className="space-y-2 text-sm text-gray-300"><div className="flex justify-between"><span>Reg No:</span> <span className="font-mono font-bold text-white">{selectedJob.regNo}</span></div><div className="flex justify-between"><span>VIN:</span> <span className="font-mono text-xs">{selectedJob.vin || 'N/A'}</span></div><div className="flex justify-between"><span>Engine:</span> <span className="font-mono text-xs">{selectedJob.engineNo || 'N/A'}</span></div><div className="flex justify-between"><span>Odometer:</span> <span className="font-bold text-white">{selectedJob.odometer} km</span></div><div className="flex justify-between"><span>Color:</span> <span>{selectedJob.color}</span></div></div></div></div><div className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}><h4 className="text-xs font-bold uppercase text-yellow-500 mb-2">🕵️‍♂️ Supervisor Observations</h4><p className="text-sm opacity-80 italic">"{selectedJob.supervisorObs || 'No notes recorded.'}"</p>{selectedJob.futureAdvisory?.length > 0 && (<div className="mt-4 p-4 border border-purple-500/30 bg-purple-900/10 rounded"><h5 className="font-bold text-purple-400 text-xs uppercase mb-2">🔮 Future Recommendations</h5>{selectedJob.futureAdvisory.map((item, idx) => (<div key={idx} className="flex justify-between text-xs border-b border-purple-500/20 py-1"><span>{item.item}</span><span className="opacity-70">{item.dueIn}</span></div>))}</div>)}</div>{selectedJob.obdScanReport && <div className="p-4 rounded-lg border border-red-900/50 bg-red-900/10"><h5 className="font-bold text-xs uppercase mb-2 text-red-400">🧠 OBD Diagnostic Report</h5><p className="font-mono text-sm">{selectedJob.obdScanReport}</p></div>}</div>)}{jobDetailTab === 'TASKS' && (<div className="space-y-4"><div className="flex justify-between items-center mb-2"><h4 className="font-bold text-sm">Technician: <span className="text-blue-400">{selectedJob.technicianName}</span></h4></div>{selectedJob.blocks?.map((block, i) => (<div key={i} className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}><h5 className="font-bold text-xs uppercase mb-3 text-slate-500">{block.name}</h5><div className="space-y-2">{block.steps.map((step, k) => (<div key={k} className="flex items-center gap-3 text-sm"><div className={`w-4 h-4 rounded-full border flex items-center justify-center text-[10px] ${step.includes('✅') ? 'bg-green-500 border-green-500 text-black' : 'border-slate-500'}`}>{step.includes('✅') && '✓'}</div><span className={step.includes('✅') ? 'opacity-50 line-through' : ''}>{step.replace(' ✅','')}</span></div>))}</div></div>))}{selectedJob.electricalTasks?.length > 0 && <div className="p-4 rounded-lg border border-yellow-500/30 bg-yellow-900/10"><h5 className="font-bold text-xs uppercase mb-3 text-yellow-500">⚡ Electrical</h5>{selectedJob.electricalTasks.map((t,k)=><div key={k} className="text-sm flex gap-2"><span>{t.done?'✅':'⬜'}</span><span>{t.desc}</span></div>)}</div>}{selectedJob.qcTasks?.length > 0 && <div className="p-4 rounded-lg border border-purple-500/30 bg-purple-900/10"><h5 className="font-bold text-xs uppercase mb-3 text-purple-500">🔍 QC Checklist</h5>{selectedJob.qcTasks.map((t,k)=><div key={k} className="text-sm flex gap-2"><span>{t.done?'✅':'⬜'}</span><span>{t.desc}</span></div>)}</div>}{selectedJob.obdScanReport && <div className="p-4 rounded-lg border border-red-900/50 bg-red-900/10"><h5 className="font-bold text-xs uppercase mb-2 text-red-400">OBD Codes</h5><p className="font-mono text-sm">{selectedJob.obdScanReport}</p></div>}</div>)}{jobDetailTab === 'FINANCE' && (<div className="space-y-6"><div className="grid grid-cols-2 gap-4"><div><h4 className="text-xs font-bold uppercase text-slate-500 mb-2 border-b border-slate-700 pb-1">Parts Used</h4><div className="space-y-1">{selectedJob.parts?.map((p, i) => (<div key={i} className="flex justify-between text-sm py-1 border-b border-slate-800/50"><span>{p.desc} <span className="text-[10px] opacity-50">x{p.qty}</span></span><span className="font-mono">₹{p.total}</span></div>))}</div></div><div><h4 className="text-xs font-bold uppercase text-slate-500 mb-2 border-b border-slate-700 pb-1">Labor Charges</h4><div className="space-y-1">{selectedJob.labor?.map((l, i) => (<div key={i} className="flex justify-between text-sm py-1 border-b border-slate-800/50"><span>{l.desc}</span><span className="font-mono">₹{l.total}</span></div>))}</div></div></div><div className={`p-4 rounded-lg mt-4 flex justify-between items-center ${darkMode ? 'bg-slate-900' : 'bg-slate-100'}`}><span className="text-sm font-bold">GRAND TOTAL</span><span className="text-2xl font-black text-green-500">₹{((selectedJob.parts?.reduce((a,b)=>a+(Number(b.total)||0),0) || 0) + (selectedJob.labor?.reduce((a,b)=>a+(Number(b.total)||0),0) || 0)).toLocaleString()}</span></div></div>)}{jobDetailTab === 'LOGS' && (<div className="space-y-4"><div className="relative border-l-2 border-slate-700 ml-2 space-y-6 pl-4 py-2">{(selectedJob.statusLogs || []).map((log, i) => (<div key={i} className="relative"><div className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full ${log.status === 'PAUSED' ? 'bg-red-500' : 'bg-blue-500'}`}></div><p className="text-xs font-mono opacity-50">{new Date(log.time).toLocaleString()}</p><p className="font-bold text-sm">{log.status}</p>{log.reason && <p className="text-xs text-red-400 italic">Reason: {log.reason}</p>}</div>))}<div className="relative"><div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-green-500"></div><p className="text-xs font-mono opacity-50">{new Date(selectedJob.createdAt?.seconds * 1000).toLocaleString()}</p><p className="font-bold text-sm">JOB CREATED</p></div></div></div>)}</div></>) : <div className="flex items-center justify-center h-full opacity-30 text-xl font-bold">SELECT A JOB</div>}</div>
+        {activeTab === 'JOBS' && (<div className="grid grid-cols-12 gap-6 h-[85vh]"><div className={`col-span-12 lg:col-span-4 rounded-xl border overflow-hidden flex flex-col ${theme.card}`}><div className={`p-4 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} flex justify-between items-center`}><h3 className={`font-bold ${theme.textMain}`}>Fleet Manager</h3><input placeholder="Search..." className={`p-2 rounded text-xs w-1/2 font-mono ${theme.input}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div><div className="overflow-y-auto flex-grow"><table className="w-full text-sm text-left"><thead className={`${theme.tableHead} text-xs uppercase sticky top-0 z-10`}><tr><th className="px-4 py-3">Vehicle</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Total</th></tr></thead><tbody className={theme.textMain}>{jobs.filter(j => (j.regNo || '').includes(searchTerm.toUpperCase())).map(job => {const total = (Array.isArray(job.parts) ? job.parts.reduce((a,b)=>a+(Number(b.total)||0),0) : 0) + (Array.isArray(job.labor) ? job.labor.reduce((a,b)=>a+(Number(b.total)||0),0) : 0);const priorities = getJobPriority(job);return (<tr key={job.id} className={`border-b cursor-pointer transition-colors ${theme.tableRow} ${selectedJob?.id === job.id ? 'bg-blue-600/20 border-l-4 border-l-blue-500' : `border-l-4 ${getStatusBorder(job)}`}`} onClick={() => setSelectedJob(job)}><td className="px-4 py-3"><div className="flex items-center gap-1"><div className="font-bold font-mono">{job.regNo}</div>{priorities.map((p,i) => <span key={i} className={`text-[10px] ${p.color}`} title={p.label}>{p.icon}</span>)}</div><div className={`text-[10px] ${theme.textSub}`}>{job.model} • {job.customerName}</div></td><td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getStatusColor(job.status)}`}>{job.status}</span></td><td className="px-4 py-3 text-right font-mono font-bold text-xs">₹{total.toLocaleString()}</td></tr>)})}</tbody></table></div></div><div className={`col-span-12 lg:col-span-8 rounded-xl border flex flex-col shadow-2xl ${theme.card}`}>{selectedJob ? (<><div className={`p-6 border-b ${darkMode ? 'border-slate-700 bg-[#0f172a]' : 'border-slate-200 bg-white'} flex justify-between items-start`}><div><h1 className="text-4xl font-black font-mono tracking-tight text-blue-500">{selectedJob.regNo}</h1><div className="flex gap-3 mt-2 text-sm font-bold opacity-80"><span>{selectedJob.model}</span><span>•</span><span>{selectedJob.variant}</span><span>•</span><span className="bg-slate-700 px-2 rounded text-xs py-0.5">{selectedJob.fuelType}</span></div><div className="mt-4 flex items-center gap-2 bg-slate-800/50 p-2 rounded border border-slate-700 w-fit"><div className="text-[10px] uppercase text-slate-500 font-bold">Job ID:</div><code className="text-xs font-mono text-green-400">{selectedJob.id}</code><button onClick={() => copyToClipboard(`https://${window.location.host}/track/${selectedJob.id}`)} className="ml-auto bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded text-[10px] font-bold flex items-center gap-1 shadow-lg">🔗 COPY LINK</button></div></div><div className="text-right"><div className={`text-xs font-bold uppercase mb-1 ${theme.textSub}`}>Current Status</div><div className={`text-lg font-black px-3 py-1 rounded border ${getStatusColor(selectedJob.status)}`}>{selectedJob.status}</div><div className="mt-2"><button onClick={() => router.push(`/bill/${selectedJob.id}`)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-bold text-xs shadow-lg">📄 VIEW INVOICE</button><button onClick={(e) => {if(confirm("Delete Job Permanently?")) deleteDoc(doc(db, "jobs", selectedJob.id))}} className="ml-2 bg-red-900/30 text-red-500 border border-red-900 hover:bg-red-900 hover:text-white px-4 py-2 rounded font-bold text-xs">🗑️ DELETE</button></div></div></div><div className={`flex border-b ${darkMode ? 'border-slate-700 bg-[#1e293b]' : 'border-slate-200 bg-slate-50'}`}>{['INFO', 'TASKS', 'FINANCE', 'LOGS'].map(tab => (<button key={tab} onClick={() => setJobDetailTab(tab)} className={`flex-1 py-3 text-xs font-bold tracking-widest border-b-2 transition-all ${jobDetailTab === tab ? 'border-blue-500 text-blue-500 bg-blue-500/5' : 'border-transparent ' + theme.textSub}`}>{tab}</button>))}</div><div className="flex-grow overflow-y-auto p-6">{jobDetailTab === 'INFO' && (<div className="space-y-6"><div className="grid grid-cols-2 gap-6"><div className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}><h4 className="text-xs font-bold uppercase text-blue-500 mb-4">👤 Customer Profile</h4><div className="space-y-2 text-sm text-gray-300"><div className="flex justify-between"><span>Name:</span> <span className="font-bold text-white">{selectedJob.customerName}</span></div><div className="flex justify-between"><span>Phone:</span> <span className="font-mono">{selectedJob.customerPhone}</span></div>{selectedJob.email && <div className="flex justify-between"><span>Email:</span> <span className="font-mono text-xs">{selectedJob.email}</span></div>}<div className="flex justify-between border-t border-slate-700 pt-2 mt-2"><span>Billing Name:</span> <span>{selectedJob.billingName || '-'}</span></div><div className="flex justify-between"><span>GSTIN:</span> <span className="font-mono">{selectedJob.gstin || 'N/A'}</span></div>{selectedJob.address && <div className="mt-2 text-xs opacity-70">📍 {selectedJob.address}</div>}</div></div><div className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}><h4 className="text-xs font-bold uppercase text-purple-500 mb-4">🚗 Technical DNA</h4><div className="space-y-2 text-sm text-gray-300"><div className="flex justify-between"><span>Reg No:</span> <span className="font-mono font-bold text-white">{selectedJob.regNo}</span></div><div className="flex justify-between"><span>VIN:</span> <span className="font-mono text-xs">{selectedJob.vin || 'N/A'}</span></div><div className="flex justify-between"><span>Engine:</span> <span className="font-mono text-xs">{selectedJob.engineNo || 'N/A'}</span></div><div className="flex justify-between"><span>Odometer:</span> <span className="font-bold text-white">{selectedJob.odometer} km</span></div><div className="flex justify-between"><span>Color:</span> <span>{selectedJob.color}</span></div></div></div></div><div className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}><h4 className="text-xs font-bold uppercase text-yellow-500 mb-2">🕵️‍♂️ Supervisor Observations</h4><p className="text-sm opacity-80 italic">"{selectedJob.supervisorObs || 'No notes recorded.'}"</p>{selectedJob.futureAdvisory?.length > 0 && (<div className="mt-4 p-4 border border-purple-500/30 bg-purple-900/10 rounded"><h5 className="font-bold text-purple-400 text-xs uppercase mb-2">🔮 Future Recommendations</h5>{selectedJob.futureAdvisory.map((item, idx) => (<div key={idx} className="flex justify-between text-xs border-b border-purple-500/20 py-1"><span>{item.item}</span><span className="opacity-70">{item.dueIn}</span></div>))}</div>)}</div>{selectedJob.obdScanReport && <div className="p-4 rounded-lg border border-red-900/50 bg-red-900/10"><h5 className="font-bold text-xs uppercase mb-2 text-red-400">🧠 OBD Diagnostic Report</h5><p className="font-mono text-sm">{selectedJob.obdScanReport}</p></div>}</div>)}{jobDetailTab === 'TASKS' && (<div className="space-y-4"><div className="flex justify-between items-center mb-2"><h4 className="font-bold text-sm">Technician: <span className="text-blue-400">{selectedJob.technicianName}</span></h4></div>{selectedJob.blocks?.map((block, i) => (<div key={i} className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}><h5 className="font-bold text-xs uppercase mb-3 text-slate-500">{block.name}</h5><div className="space-y-2">{block.steps.map((step, k) => (<div key={k} className="flex items-center gap-3 text-sm"><div className={`w-4 h-4 rounded-full border flex items-center justify-center text-[10px] ${step.includes('✅') ? 'bg-green-500 border-green-500 text-black' : 'border-slate-500'}`}>{step.includes('✅') && '✓'}</div><span className={step.includes('✅') ? 'opacity-50 line-through' : ''}>{step.replace(' ✅','')}</span></div>))}</div></div>))}{selectedJob.electricalTasks?.length > 0 && <div className="p-4 rounded-lg border border-yellow-500/30 bg-yellow-900/10"><h5 className="font-bold text-xs uppercase mb-3 text-yellow-500">⚡ Electrical</h5>{selectedJob.electricalTasks.map((t,k)=><div key={k} className="text-sm flex gap-2"><span>{t.done?'✅':'⬜'}</span><span>{t.desc}</span></div>)}</div>}{selectedJob.qcTasks?.length > 0 && <div className="p-4 rounded-lg border border-purple-500/30 bg-purple-900/10"><h5 className="font-bold text-xs uppercase mb-3 text-purple-500">🔍 QC Checklist</h5>{selectedJob.qcTasks.map((t,k)=><div key={k} className="text-sm flex gap-2"><span>{t.done?'✅':'⬜'}</span><span>{t.desc}</span></div>)}</div>}{selectedJob.obdScanReport && <div className="p-4 rounded-lg border border-red-900/50 bg-red-900/10"><h5 className="font-bold text-xs uppercase mb-2 text-red-400">OBD Codes</h5><p className="font-mono text-sm">{selectedJob.obdScanReport}</p></div>}</div>)}{jobDetailTab === 'FINANCE' && (<div className="space-y-6"><div className="grid grid-cols-2 gap-4"><div><h4 className="text-xs font-bold uppercase text-slate-500 mb-2 border-b border-slate-700 pb-1">Parts Used</h4><div className="space-y-1">{selectedJob.parts?.map((p, i) => (<div key={i} className="flex justify-between text-sm py-1 border-b border-slate-800/50"><span>{p.desc} <span className="text-[10px] opacity-50">x{p.qty}</span></span><span className="font-mono">₹{p.total}</span></div>))}</div></div><div><h4 className="text-xs font-bold uppercase text-slate-500 mb-2 border-b border-slate-700 pb-1">Labor Charges</h4><div className="space-y-1">{selectedJob.labor?.map((l, i) => (<div key={i} className="flex justify-between text-sm py-1 border-b border-slate-800/50"><span>{l.desc}</span><span className="font-mono">₹{l.total}</span></div>))}</div></div></div><div className={`p-4 rounded-lg mt-4 flex justify-between items-center ${darkMode ? 'bg-slate-900' : 'bg-slate-100'}`}><span className="text-sm font-bold">GRAND TOTAL</span><span className="text-2xl font-black text-green-500">₹{((selectedJob.parts?.reduce((a,b)=>a+(Number(b.total)||0),0) || 0) + (selectedJob.labor?.reduce((a,b)=>a+(Number(b.total)||0),0) || 0)).toLocaleString()}</span></div></div>)}{jobDetailTab === 'LOGS' && (<div className="space-y-4"><div className="relative border-l-2 border-slate-700 ml-2 space-y-6 pl-4 py-2">{(selectedJob.statusLogs || []).map((log, i) => (<div key={i} className="relative"><div className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full ${log.status === 'PAUSED' ? 'bg-red-500' : 'bg-blue-500'}`}></div><p className="text-xs font-mono opacity-50">{new Date(log.time).toLocaleString()}</p><p className="font-bold text-sm">{log.status}</p>{log.reason && <p className="text-xs text-red-400 italic">Reason: {log.reason}</p>}</div>))}<div className="relative"><div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-green-500"></div><p className="text-xs font-mono opacity-50">{new Date(selectedJob.createdAt?.seconds * 1000).toLocaleString()}</p><p className="font-bold text-sm">JOB CREATED</p></div></div></div>)}</div></>) : <div className="flex items-center justify-center h-full opacity-30 text-xl font-bold">SELECT A JOB</div>}</div>
             </div>
         )}
 
-        {/* ================= TAB 4: INVENTORY (V85 UPDATED) ================= */}
-        {activeTab === 'INVENTORY' && (
+        {/* ================= TAB 4: INVENTORY (V85 Preserved) ================= */}
+        {activeTab === 'INVENTORY' && (<div className="grid grid-cols-1 lg:grid-cols-3 gap-6"><div className={`p-6 rounded-xl shadow h-fit ${theme.card}`}><h3 className={`font-bold text-lg mb-4 ${theme.textMain}`}>✨ Smart Add Part</h3><div className="space-y-4"><div><label className="text-[10px] uppercase text-slate-500 font-bold">Part Name</label><input className={`w-full border p-2 rounded ${theme.input}`} placeholder="e.g. Castrol 5W30 Diesel" value={newItem.name} onChange={handleNameChange} /></div><div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] uppercase text-slate-500 font-bold">Buying Price</label><input className={`w-full border p-2 rounded ${theme.input}`} type="number" placeholder="Cost" value={newItem.buyingPrice} onChange={e => setNewItem({...newItem, buyingPrice: e.target.value})} /></div><div><label className="text-[10px] uppercase text-slate-500 font-bold">Selling Price</label><input className={`w-full border p-2 rounded ${theme.input}`} type="number" placeholder="MRP" value={newItem.sellingPrice} onChange={e => setNewItem({...newItem, sellingPrice: e.target.value})} /></div></div>{newItem.buyingPrice && newItem.sellingPrice && (<div className={`text-xs text-center p-1 rounded font-bold ${calculateMargin(newItem.buyingPrice, newItem.sellingPrice).percent > 20 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>Margin: {calculateMargin(newItem.buyingPrice, newItem.sellingPrice).percent}% (₹{calculateMargin(newItem.buyingPrice, newItem.sellingPrice).profit})</div>)}<div><label className="text-[10px] uppercase text-slate-500 font-bold">Stock Qty</label><input className={`w-full border p-2 rounded ${theme.input}`} type="number" placeholder="Qty" value={newItem.stock} onChange={e => setNewItem({...newItem, stock: e.target.value})} /></div><div><label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Smart Tags</label><div className="flex flex-wrap gap-1">{['Petrol','Diesel','CNG','Hatchback','Sedan','SUV','PMS','General'].map(tag => (<button key={tag} onClick={() => handleTagClick(tag)} className={`px-2 py-1 rounded text-[10px] border transition-all ${newItem.tags.includes(tag) ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>{tag}</button>))}</div></div><button onClick={handleAddItem} className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded shadow-lg transition-all">SAVE ITEM</button></div></div><div className="col-span-2 space-y-6"><div className={`p-4 rounded-xl border border-dashed border-slate-500 bg-slate-800/30`}><h4 className="text-xs font-bold text-slate-400 uppercase mb-2">📥 Bulk Ingest (Paste CSV: Name,Buy,Sell,Qty)</h4><textarea className="w-full h-20 bg-transparent text-xs font-mono border border-slate-700 rounded p-2 text-slate-300 focus:outline-none" placeholder="Castrol Oil,800,1200,50&#10;Air Filter,200,350,20..." value={bulkText} onChange={e => setBulkText(e.target.value)}></textarea><button onClick={handleBulkParse} className="mt-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded text-xs font-bold w-full">🚀 PARSE & AUTO-TAG</button></div><div className={`rounded-xl shadow overflow-hidden ${theme.card}`}><table className="w-full text-sm text-left"><thead className={theme.tableHead}><tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Buy</th><th className="px-4 py-2">Sell</th><th className="px-4 py-2">Margin</th><th className="px-4 py-2">Stock</th><th className="px-4 py-2">Action</th></tr></thead><tbody className={theme.textMain}>{inventory.map(i => {const m = calculateMargin(i.buyingPrice, i.price);return (<tr key={i.id} className={`border-b ${theme.tableRow}`}><td className="px-4 py-2"><div className="font-bold">{i.name}</div><div className="flex gap-1 mt-1">{i.tags?.map((t,k)=><span key={k} className="text-[8px] bg-slate-700 px-1 rounded text-slate-300">{t}</span>)}</div></td><td className="px-4 py-2 opacity-70">₹{i.buyingPrice || '-'}</td><td className="px-4 py-2 font-bold">₹{i.price}</td><td className={`px-4 py-2 text-xs font-bold ${m.percent > 20 ? 'text-green-500' : 'text-red-500'}`}>{m.percent}%</td><td className="px-4 py-2">{i.stock}</td><td className="px-4 py-2"><button onClick={()=>handleDeleteItem(i.id)} className="text-red-500 font-bold">×</button></td></tr>)})}</tbody></table></div></div></div>)}
+
+        {/* ================= TAB 5: USERS (V91: UPDATED ROLES & EDIT) ================= */}
+        {activeTab === 'USERS' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* 1. SMART ADD PART FORM (LEFT) */}
-                <div className={`p-6 rounded-xl shadow h-fit ${theme.card}`}>
-                    <h3 className={`font-bold text-lg mb-4 ${theme.textMain} flex items-center gap-2`}>
-                        ✨ Smart Add Part
-                    </h3>
-                    <div className="space-y-4">
-                        {/* Name & Auto-Tagging */}
-                        <div>
-                            <label className="text-[10px] uppercase text-slate-500 font-bold">Part Name</label>
-                            <input className={`w-full border p-2 rounded ${theme.input}`} placeholder="e.g. Castrol 5W30 Diesel" value={newItem.name} onChange={handleNameChange} />
-                        </div>
-                        
-                        {/* Pricing & Margin */}
-                        <div className="grid grid-cols-2 gap-2">
-                            <div>
-                                <label className="text-[10px] uppercase text-slate-500 font-bold">Buying Price</label>
-                                <input className={`w-full border p-2 rounded ${theme.input}`} type="number" placeholder="Cost" value={newItem.buyingPrice} onChange={e => setNewItem({...newItem, buyingPrice: e.target.value})} />
-                            </div>
-                            <div>
-                                <label className="text-[10px] uppercase text-slate-500 font-bold">Selling Price</label>
-                                <input className={`w-full border p-2 rounded ${theme.input}`} type="number" placeholder="MRP" value={newItem.sellingPrice} onChange={e => setNewItem({...newItem, sellingPrice: e.target.value})} />
-                            </div>
-                        </div>
-                        
-                        {/* Margin Display */}
-                        {newItem.buyingPrice && newItem.sellingPrice && (
-                            <div className={`text-xs text-center p-1 rounded font-bold ${calculateMargin(newItem.buyingPrice, newItem.sellingPrice).percent > 20 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                                Margin: {calculateMargin(newItem.buyingPrice, newItem.sellingPrice).percent}% (₹{calculateMargin(newItem.buyingPrice, newItem.sellingPrice).profit})
-                            </div>
-                        )}
-
-                        <div>
-                            <label className="text-[10px] uppercase text-slate-500 font-bold">Stock Qty</label>
-                            <input className={`w-full border p-2 rounded ${theme.input}`} type="number" placeholder="Qty" value={newItem.stock} onChange={e => setNewItem({...newItem, stock: e.target.value})} />
-                        </div>
-
-                        {/* Tag Cloud */}
-                        <div>
-                            <label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Smart Tags</label>
-                            <div className="flex flex-wrap gap-1">
-                                {['Petrol','Diesel','CNG','Hatchback','Sedan','SUV','PMS','General'].map(tag => (
-                                    <button key={tag} onClick={() => handleTagClick(tag)} className={`px-2 py-1 rounded text-[10px] border transition-all ${newItem.tags.includes(tag) ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
-                                        {tag}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        <button onClick={handleAddItem} className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded shadow-lg transition-all">SAVE ITEM</button>
+                {/* 1. CREATE USER FORM */}
+                <div className={`p-6 rounded-xl shadow h-fit border-l-4 border-red-500 ${theme.card}`}>
+                    <h3 className={`font-bold text-lg mb-4 ${theme.textMain}`}>Create Staff</h3>
+                    <div className="space-y-3">
+                        <input className={`w-full border p-2 rounded ${theme.input}`} placeholder="Staff Name" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} />
+                        <input className={`w-full border p-2 rounded ${theme.input}`} placeholder="Email" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} />
+                        <select className={`w-full border p-2 rounded ${theme.input}`} value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
+                            <option value="technician">Technician</option>
+                            <option value="junior technician">Junior Technician</option>
+                            <option value="senior technician">Senior Technician</option>
+                            <option value="electrical specialist">Electrical Specialist</option>
+                            <option value="helper">Helper</option>
+                            <option value="supervisor">Supervisor</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                        <button onClick={handleCreateUser} className="w-full bg-red-600 text-white font-bold py-2 rounded hover:bg-red-700">GRANT ACCESS</button>
                     </div>
                 </div>
 
-                {/* 2. BULK INGEST & LIST (RIGHT) */}
-                <div className="col-span-2 space-y-6">
-                    
-                    {/* BULK INGEST ZONE */}
-                    <div className={`p-4 rounded-xl border border-dashed border-slate-500 bg-slate-800/30`}>
-                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">📥 Bulk Ingest (Paste CSV: Name,Buy,Sell,Qty)</h4>
-                        <textarea className="w-full h-20 bg-transparent text-xs font-mono border border-slate-700 rounded p-2 text-slate-300 focus:outline-none" placeholder="Castrol Oil,800,1200,50&#10;Air Filter,200,350,20..." value={bulkText} onChange={e => setBulkText(e.target.value)}></textarea>
-                        <button onClick={handleBulkParse} className="mt-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded text-xs font-bold w-full">🚀 PARSE & AUTO-TAG</button>
-                    </div>
-
-                    {/* INVENTORY TABLE */}
-                    <div className={`rounded-xl shadow overflow-hidden ${theme.card}`}>
-                        <table className="w-full text-sm text-left">
-                            <thead className={theme.tableHead}><tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Buy</th><th className="px-4 py-2">Sell</th><th className="px-4 py-2">Margin</th><th className="px-4 py-2">Stock</th><th className="px-4 py-2">Action</th></tr></thead>
-                            <tbody className={theme.textMain}>{inventory.map(i => {
-                                const m = calculateMargin(i.buyingPrice, i.price);
-                                return (
-                                    <tr key={i.id} className={`border-b ${theme.tableRow}`}>
-                                        <td className="px-4 py-2">
-                                            <div className="font-bold">{i.name}</div>
-                                            <div className="flex gap-1 mt-1">{i.tags?.map((t,k)=><span key={k} className="text-[8px] bg-slate-700 px-1 rounded text-slate-300">{t}</span>)}</div>
-                                        </td>
-                                        <td className="px-4 py-2 opacity-70">₹{i.buyingPrice || '-'}</td>
-                                        <td className="px-4 py-2 font-bold">₹{i.price}</td>
-                                        <td className={`px-4 py-2 text-xs font-bold ${m.percent > 20 ? 'text-green-500' : 'text-red-500'}`}>{m.percent}%</td>
-                                        <td className="px-4 py-2">{i.stock}</td>
-                                        <td className="px-4 py-2"><button onClick={()=>handleDeleteItem(i.id)} className="text-red-500 font-bold">×</button></td>
-                                    </tr>
-                                )
-                            })}</tbody>
-                        </table>
-                    </div>
+                {/* 2. ACTIVE USERS LIST (WITH INLINE EDIT) */}
+                <div className={`col-span-2 rounded-xl shadow overflow-hidden ${theme.card}`}>
+                    <h3 className={`p-4 font-bold border-b ${theme.textMain} ${darkMode ? 'border-slate-700' : 'border-gray-200'}`}>Active Users</h3>
+                    <table className="w-full text-sm text-left">
+                        <thead className={theme.tableHead}><tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Role</th><th className="px-4 py-2">Email</th><th className="px-4 py-2">Action</th></tr></thead>
+                        <tbody className={theme.textMain}>
+                            {usersList.map(u => (
+                                <tr key={u.id} className={`border-b ${theme.tableRow}`}>
+                                    {/* CONDITIONAL RENDERING: EDIT vs VIEW */}
+                                    {editingUser?.id === u.id ? (
+                                        <>
+                                            <td className="px-4 py-2"><input className={`w-full border p-1 rounded ${theme.input}`} value={editingUser.name} onChange={e => setEditingUser({...editingUser, name: e.target.value})} /></td>
+                                            <td className="px-4 py-2">
+                                                <select className={`w-full border p-1 rounded ${theme.input}`} value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value})}>
+                                                    <option value="technician">Technician</option>
+                                                    <option value="junior technician">Junior Technician</option>
+                                                    <option value="senior technician">Senior Technician</option>
+                                                    <option value="electrical specialist">Electrical Specialist</option>
+                                                    <option value="helper">Helper</option>
+                                                    <option value="supervisor">Supervisor</option>
+                                                    <option value="admin">Admin</option>
+                                                </select>
+                                            </td>
+                                            <td className="px-4 py-2"><input className={`w-full border p-1 rounded ${theme.input}`} value={editingUser.email} onChange={e => setEditingUser({...editingUser, email: e.target.value})} /></td>
+                                            <td className="px-4 py-2 flex gap-2">
+                                                <button onClick={handleUpdateUser} className="bg-green-600 text-white px-2 py-1 rounded text-xs font-bold">✅ SAVE</button>
+                                                <button onClick={() => setEditingUser(null)} className="bg-slate-600 text-white px-2 py-1 rounded text-xs font-bold">❌</button>
+                                            </td>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <td className="px-4 py-2 font-bold">{u.name}</td>
+                                            <td className="px-4 py-2 uppercase text-xs font-bold text-blue-500">{u.role}</td>
+                                            <td className={`px-4 py-2 ${theme.textSub}`}>{u.email}</td>
+                                            <td className="px-4 py-2 flex gap-2">
+                                                <button onClick={() => setEditingUser(u)} className="bg-blue-600/20 text-blue-400 px-2 py-1 rounded text-xs font-bold border border-blue-600/30 hover:bg-blue-600 hover:text-white">✏️ EDIT</button>
+                                                <button onClick={()=>handleResetPassword(u.id, u.name)} className="bg-yellow-500/10 text-yellow-500 px-2 py-1 rounded text-xs font-bold border border-yellow-500/30 hover:bg-yellow-500 hover:text-black">RESET</button>
+                                                <button onClick={()=>handleDeleteUser(u.id)} className="text-red-500 font-bold ml-2">REVOKE</button>
+                                            </td>
+                                        </>
+                                    )}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         )}
-
-        {/* ================= TAB 5: USERS ================= */}
-        {activeTab === 'USERS' && (<div className="grid grid-cols-1 lg:grid-cols-3 gap-6"><div className={`p-6 rounded-xl shadow h-fit border-l-4 border-red-500 ${theme.card}`}><h3 className={`font-bold text-lg mb-4 ${theme.textMain}`}>Create Staff</h3><div className="space-y-3"><input className={`w-full border p-2 rounded ${theme.input}`} placeholder="Staff Name" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} /><input className={`w-full border p-2 rounded ${theme.input}`} placeholder="Email" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} /><select className={`w-full border p-2 rounded ${theme.input}`} value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}><option value="technician">Technician</option><option value="supervisor">Supervisor</option><option value="admin">Admin</option></select><button onClick={handleCreateUser} className="w-full bg-red-600 text-white font-bold py-2 rounded hover:bg-red-700">GRANT ACCESS</button></div></div><div className={`col-span-2 rounded-xl shadow overflow-hidden ${theme.card}`}><h3 className={`p-4 font-bold border-b ${theme.textMain} ${darkMode ? 'border-slate-700' : 'border-gray-200'}`}>Active Users</h3><table className="w-full text-sm text-left"><thead className={theme.tableHead}><tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Role</th><th className="px-4 py-2">Email</th><th className="px-4 py-2">Action</th></tr></thead><tbody className={theme.textMain}>{usersList.map(u => (<tr key={u.id} className={`border-b ${theme.tableRow}`}><td className="px-4 py-2 font-bold">{u.name}</td><td className="px-4 py-2 uppercase text-xs font-bold text-blue-500">{u.role}</td><td className={`px-4 py-2 ${theme.textSub}`}>{u.email}</td><td className="px-4 py-2 flex gap-2"><button onClick={()=>handleResetPassword(u.id, u.name)} className="bg-yellow-500/10 text-yellow-500 px-2 py-1 rounded text-xs font-bold border border-yellow-500/30 hover:bg-yellow-500 hover:text-black">RESET</button><button onClick={()=>handleDeleteUser(u.id)} className="text-red-500 font-bold ml-2">REVOKE</button></td></tr>))}</tbody></table></div></div>)}
 
         {/* ================= TAB 6: REPORTS ================= */}
         {activeTab === 'REPORTS' && (<div className="space-y-6 animate-in fade-in"><div className={`p-8 rounded-xl border text-center ${theme.card}`}><h2 className={`text-2xl font-bold mb-2 ${theme.textMain}`}>📊 Audit & Accounting Center</h2><p className={`mb-6 ${theme.textSub}`}>Export comprehensive job history for external accounting (Tally, Zoho, Excel).</p><div className="flex justify-center gap-4 flex-wrap"><button onClick={() => downloadReport('CSV')} className="bg-green-600 hover:bg-green-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-xl">📥 DOWNLOAD CSV</button><button onClick={() => downloadReport('PDF')} className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-xl">🖨️ PRINT PDF</button></div></div><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div className={`p-6 rounded-xl border ${theme.card}`}><h3 className={`text-sm font-bold uppercase mb-4 ${theme.textSub}`}>Revenue Split</h3><div className="flex items-end gap-4 h-40"><div className="w-1/2 bg-blue-600 rounded-t flex flex-col justify-end text-center text-white pb-2" style={{height: '100%'}}><span className="font-bold">₹{financials.totalLabor.toLocaleString()}</span><span className="text-xs opacity-70">LABOR</span></div><div className="w-1/2 bg-orange-500 rounded-t flex flex-col justify-end text-center text-white pb-2" style={{height: `${(financials.totalParts / financials.totalRevenue)*100}%`}}><span className="font-bold">₹{financials.totalParts.toLocaleString()}</span><span className="text-xs opacity-70">PARTS</span></div></div></div><div className={`p-6 rounded-xl border ${theme.card}`}><h3 className={`text-sm font-bold uppercase mb-4 ${theme.textSub}`}>Job Status</h3><div className="space-y-3">{['ESTIMATE', 'WORK_IN_PROGRESS', 'READY', 'DELIVERED'].map(status => {const count = jobs.filter(j => j.status === status).length;return (<div key={status} className="flex items-center gap-2"><div className={`w-32 text-xs font-bold ${theme.textMain}`}>{status}</div><div className="flex-grow bg-slate-700 rounded-full h-2 overflow-hidden"><div className="bg-green-500 h-full" style={{width: `${(count/jobs.length)*100}%`}}></div></div><div className={`w-8 text-xs font-mono ${theme.textMain}`}>{count}</div></div>)})}</div></div></div></div>)}
