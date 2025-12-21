@@ -54,6 +54,12 @@ export default function AdminDashboard() {
 
   const handleLogout = async () => { await signOut(auth); router.push('/'); };
 
+  // --- NEW: CLIPBOARD UTILITY ---
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    alert("Tracking Link Copied to Clipboard!");
+  };
+
   // --- ANALYTICS ENGINE ---
   const calculateFinancials = () => {
       let totalParts = 0;
@@ -78,7 +84,6 @@ export default function AdminDashboard() {
         const tech = job.technicianName || 'Unassigned';
         if(!stats[tech]) stats[tech] = { name: tech, jobsCount: 0, activeNow: null, laborRevenue: 0, status: 'IDLE' };
         
-        // Use labor total for revenue or total job value depending on policy. Using Total for Leaderboard visual.
         const jobTotal = (Array.isArray(job.parts) ? job.parts.reduce((a,b)=>a+(Number(b.total)||0),0) : 0) + 
                          (Array.isArray(job.labor) ? job.labor.reduce((a,b)=>a+(Number(b.total)||0),0) : 0);
 
@@ -158,7 +163,7 @@ export default function AdminDashboard() {
       <div className={`px-6 py-3 sticky top-0 z-50 border-b flex justify-between items-center print:hidden ${theme.header}`}>
         <div className="flex items-center gap-3">
             <h1 className="text-2xl font-black tracking-tighter text-blue-500">ADMIN<span className={theme.textMain}>HQ</span></h1>
-            <span className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-600/50">V61 HYBRID</span>
+            <span className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-600/50">V63 RESTORED</span>
         </div>
         <div className="flex gap-3 items-center">
             <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-full transition-all ${darkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-slate-200 text-slate-600'}`}>
@@ -214,7 +219,6 @@ export default function AdminDashboard() {
                                 <h3 className={`text-xl font-black uppercase text-center ${theme.textMain}`}>{tech.name}</h3>
                                 <div className="mt-auto text-center w-full">
                                     <div className="text-sm font-mono font-bold text-green-500 bg-black/30 rounded px-2 py-1 mb-1">{tech.jobsCount} Jobs</div>
-                                    {/* Safe Math for Revenue */}
                                     <div className={`text-lg font-bold ${theme.textSub}`}>₹{(tech.laborRevenue || 0).toLocaleString()}</div>
                                 </div>
                                 <div className="absolute -top-4 -right-4 text-[80px] opacity-5 font-black pointer-events-none">{i+1}</div>
@@ -258,7 +262,7 @@ export default function AdminDashboard() {
             </div>
         )}
 
-        {/* ================= TAB 3: JOBS MANAGER (RESTORED V55 GLORY) ================= */}
+        {/* ================= TAB 3: JOBS MANAGER (FULL DOSSIER + NEW TRACKING BUTTON) ================= */}
         {activeTab === 'JOBS' && (
             <div className="grid grid-cols-12 gap-6 h-[85vh]">
                 
@@ -304,6 +308,16 @@ export default function AdminDashboard() {
                                         <span>•</span>
                                         <span className="bg-slate-700 px-2 rounded text-xs py-0.5">{selectedJob.fuelType}</span>
                                     </div>
+                                    
+                                    {/* 🆕 ADDED: THE TRACKING LINK BOX (Visible ID for you) */}
+                                    <div className="mt-4 flex items-center gap-2 bg-slate-800/50 p-2 rounded border border-slate-700 w-fit">
+                                        <div className="text-[10px] uppercase text-slate-500 font-bold">Job ID:</div>
+                                        <code className="text-xs font-mono text-green-400">{selectedJob.id}</code>
+                                        <button onClick={() => copyToClipboard(`https://${window.location.host}/track/${selectedJob.id}`)} className="ml-2 bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded text-[10px] font-bold flex items-center gap-1 shadow-lg">
+                                            🔗 COPY LINK FOR WHATSAPP
+                                        </button>
+                                    </div>
+
                                 </div>
                                 <div className="text-right">
                                     <div className={`text-xs font-bold uppercase mb-1 ${theme.textSub}`}>Current Status</div>
@@ -348,7 +362,7 @@ export default function AdminDashboard() {
                                         <div className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
                                             <h4 className="text-xs font-bold uppercase text-yellow-500 mb-2">🕵️‍♂️ Supervisor Observations</h4>
                                             <p className="text-sm opacity-80 italic">"{selectedJob.supervisorObs || 'No notes recorded.'}"</p>
-                                            {/* FUTURE ADVISORY RESTORED */}
+                                            
                                             {selectedJob.futureAdvisory?.length > 0 && (
                                                 <div className="mt-4 p-4 border border-purple-500/30 bg-purple-900/10 rounded">
                                                     <h5 className="font-bold text-purple-400 text-xs uppercase mb-2">🔮 Future Recommendations</h5>
@@ -488,7 +502,7 @@ export default function AdminDashboard() {
             </div>
         )}
 
-        {/* ================= TAB 6: REPORTS (NEW AUDIT & DOWNLOADS) ================= */}
+        {/* ================= TAB 6: REPORTS (AUDIT & DOWNLOADS) ================= */}
         {activeTab === 'REPORTS' && (
             <div className="space-y-6 animate-in fade-in">
                 <div className={`p-8 rounded-xl border text-center ${theme.card}`}>
