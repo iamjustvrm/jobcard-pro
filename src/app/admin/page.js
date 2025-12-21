@@ -77,7 +77,7 @@ export default function AdminDashboard() {
     }
   };
 
-  // --- 🎨 STATUS COLORS (BADGES) ---
+  // --- 🎨 STATUS COLORS & BORDERS ---
   const getStatusColor = (status) => {
       switch(status) {
           case 'READY': return 'bg-green-500/20 text-green-400 border-green-500/50';
@@ -85,11 +85,11 @@ export default function AdminDashboard() {
           case 'WORK_PAUSED': 
           case 'WAITING_PARTS': return 'bg-red-500/20 text-red-400 border-red-500/50';
           case 'ESTIMATE': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50';
+          case 'DELIVERED': return 'bg-slate-500/20 text-slate-400 border-slate-500/50';
           default: return 'bg-slate-500/20 text-slate-400 border-slate-500/50';
       }
   };
 
-  // --- 🎨 NEW: ROW BORDER COLORS (V51 STYLE) ---
   const getStatusBorder = (status) => {
       switch(status) {
           case 'READY': return 'border-l-green-500';
@@ -97,11 +97,11 @@ export default function AdminDashboard() {
           case 'WORK_PAUSED':
           case 'WAITING_PARTS': return 'border-l-red-500';
           case 'ESTIMATE': return 'border-l-yellow-500';
-          default: return 'border-l-slate-600'; // Delivered
+          default: return 'border-l-slate-600'; 
       }
   };
 
-  // --- ANALYTICS ---
+  // --- 🧠 ANALYTICS ENGINE ---
   const calculateFinancials = () => {
       let totalParts = 0; let totalLabor = 0; let totalRevenue = 0;
       jobs.forEach(job => {
@@ -112,6 +112,31 @@ export default function AdminDashboard() {
       return { totalParts, totalLabor, totalRevenue };
   };
   const financials = calculateFinancials();
+
+  const getDashboardInsights = () => {
+      const activeJobs = jobs.filter(j => j.status !== 'DELIVERED');
+      const paused = activeJobs.filter(j => j.status === 'WORK_PAUSED' || j.status === 'WAITING_PARTS').length;
+      const working = activeJobs.filter(j => j.status === 'WORK_IN_PROGRESS').length;
+      const estimate = activeJobs.filter(j => j.status === 'ESTIMATE').length;
+      const ready = activeJobs.filter(j => j.status === 'READY').length;
+      
+      const laborPercent = financials.totalRevenue > 0 ? Math.round((financials.totalLabor / financials.totalRevenue) * 100) : 0;
+      const avgTicket = jobs.length > 0 ? Math.round(financials.totalRevenue / jobs.length) : 0;
+
+      // ZONES DATA
+      const pendingPartsCars = activeJobs.filter(j => j.status === 'WORK_PAUSED' || j.status === 'WAITING_PARTS');
+      const pendingEstimates = activeJobs.filter(j => j.status === 'ESTIMATE');
+      const lowStockItems = inventory.filter(i => (Number(i.stock) || 0) < 5);
+      
+      const techStatus = {};
+      usersList.filter(u => u.role === 'technician').forEach(tech => {
+          const activeJob = activeJobs.find(j => j.technicianName === tech.name && j.status === 'WORK_IN_PROGRESS');
+          techStatus[tech.name] = activeJob ? { status: 'BUSY', car: activeJob.regNo } : { status: 'IDLE', car: '-' };
+      });
+
+      return { activeCount: activeJobs.length, paused, working, estimate, ready, laborPercent, avgTicket, pendingPartsCars, pendingEstimates, lowStockItems, techStatus };
+  };
+  const insights = getDashboardInsights();
 
   const getTeamStats = () => {
     const stats = {};
@@ -203,7 +228,7 @@ export default function AdminDashboard() {
       <div className={`px-6 py-3 sticky top-0 z-50 border-b flex justify-between items-center print:hidden ${theme.header}`}>
         <div className="flex items-center gap-3">
             <h1 className="text-2xl font-black tracking-tighter text-blue-500">ADMIN<span className={theme.textMain}>HQ</span></h1>
-            <span className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-600/50">V77 V51-STYLE</span>
+            <span className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-600/50">V80 SMART-SCROLL</span>
         </div>
         <div className="flex gap-3 items-center">
             <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-full transition-all ${darkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-slate-200 text-slate-600'}`}>{darkMode ? '☀️' : '🌑'}</button>
@@ -219,15 +244,117 @@ export default function AdminDashboard() {
 
       <div className="max-w-[1600px] mx-auto p-6">
 
-        {/* DASHBOARD TAB */}
+        {/* 🆕 V80 DASHBOARD: SMART SCROLL ZONES */}
         {activeTab === 'DASHBOARD' && (
             <div className="space-y-6 animate-in fade-in">
+                
+                {/* 1. STRATEGIC ROW */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div className={`p-6 rounded-xl border-l-4 border-green-500 shadow-lg ${theme.card}`}><h3 className={`${theme.textSub} text-[10px] font-bold uppercase tracking-widest`}>Total Revenue</h3><p className={`text-4xl font-black mt-2 ${theme.textMain}`}>₹{financials.totalRevenue.toLocaleString()}</p></div>
-                    <div className={`p-6 rounded-xl border-l-4 border-blue-500 shadow-lg ${theme.card}`}><h3 className={`${theme.textSub} text-[10px] font-bold uppercase tracking-widest`}>Job Volume</h3><p className={`text-4xl font-black mt-2 ${theme.textMain}`}>{jobs.length}</p></div>
-                    <div className={`p-6 rounded-xl border-l-4 border-purple-500 shadow-lg ${theme.card}`}><h3 className={`${theme.textSub} text-[10px] font-bold uppercase tracking-widest`}>Avg Ticket Value</h3><p className={`text-4xl font-black mt-2 ${theme.textMain}`}>₹{jobs.length > 0 ? Math.round(financials.totalRevenue / jobs.length).toLocaleString() : 0}</p></div>
-                    <div className={`p-6 rounded-xl border-l-4 border-red-500 shadow-lg ${theme.card}`}><h3 className={`${theme.textSub} text-[10px] font-bold uppercase tracking-widest`}>Active Cars</h3><p className={`text-4xl font-black mt-2 ${theme.textMain}`}>{jobs.filter(j => j.status !== 'DELIVERED').length}</p></div>
+                    <div className={`p-6 rounded-xl border relative overflow-hidden group ${theme.card}`}>
+                        <div className="flex justify-between items-start mb-4"><h3 className={`text-[10px] font-bold uppercase tracking-widest text-slate-400`}>Total Revenue</h3><span className="text-xs font-bold text-green-400 bg-green-900/20 px-2 py-0.5 rounded">Live</span></div>
+                        <p className={`text-4xl font-black ${theme.textMain}`}>₹{financials.totalRevenue.toLocaleString()}</p>
+                        <div className="mt-4 w-full h-2 bg-slate-700 rounded-full overflow-hidden flex"><div className="h-full bg-blue-500" style={{width: `${insights.laborPercent}%`}}></div><div className="h-full bg-orange-500" style={{width: `${100 - insights.laborPercent}%`}}></div></div>
+                        <div className="flex justify-between text-[9px] font-bold mt-1 uppercase text-slate-500"><span className="text-blue-400">Labor {insights.laborPercent}%</span><span className="text-orange-400">Parts {100 - insights.laborPercent}%</span></div>
+                    </div>
+                    <div className={`p-6 rounded-xl border relative ${theme.card}`}>
+                        <h3 className={`text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2`}>Avg Ticket Quality</h3>
+                        <p className={`text-4xl font-black ${theme.textMain}`}>₹{insights.avgTicket.toLocaleString()}</p>
+                        <p className="text-xs text-slate-500 mt-2">Per Job Average</p>
+                        <div className={`absolute top-6 right-6 text-2xl ${insights.avgTicket > 5000 ? 'text-green-500' : 'text-slate-600'}`}>{insights.avgTicket > 5000 ? '💎' : '📉'}</div>
+                    </div>
+                    <div className={`p-6 rounded-xl border relative ${theme.card}`}>
+                        <h3 className={`text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2`}>Job Volume</h3>
+                        <div className="flex items-end gap-2"><p className={`text-4xl font-black ${theme.textMain}`}>{jobs.length}</p><span className="text-sm font-bold text-slate-500 mb-1">Total Jobs</span></div>
+                        <div className="mt-3 flex gap-2"><div className="text-center px-3 py-1 bg-green-500/10 rounded border border-green-500/20"><div className="text-xl font-bold text-green-400">{insights.ready}</div><div className="text-[8px] uppercase text-slate-500">Ready</div></div><div className="text-center px-3 py-1 bg-slate-800 rounded border border-slate-700"><div className="text-xl font-bold text-slate-400">{jobs.length - insights.activeCount}</div><div className="text-[8px] uppercase text-slate-500">Done</div></div></div>
+                    </div>
+                    <div className={`p-6 rounded-xl border border-l-4 ${insights.paused > 0 ? 'border-l-red-500' : 'border-l-slate-700'} ${theme.card}`}>
+                        <h3 className={`text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-4`}>Active Bottlenecks</h3>
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-center"><div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div><span className="text-xs font-bold text-blue-400">Working</span></div><span className="font-mono font-bold text-white">{insights.working}</span></div>
+                            <div className="flex justify-between items-center"><div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-yellow-500"></div><span className="text-xs font-bold text-yellow-400">Estimating</span></div><span className="font-mono font-bold text-white">{insights.estimate}</span></div>
+                            <div className="flex justify-between items-center"><div className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${insights.paused > 0 ? 'bg-red-500 animate-ping' : 'bg-slate-600'}`}></div><span className={`text-xs font-bold ${insights.paused > 0 ? 'text-red-400' : 'text-slate-500'}`}>Paused</span></div><span className={`font-mono font-bold ${insights.paused > 0 ? 'text-red-400' : 'text-slate-500'}`}>{insights.paused}</span></div>
+                        </div>
+                    </div>
                 </div>
+
+                {/* 2. TACTICAL ZONES (MIDDLE ROW) */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    {/* ZONE 1: TECH HEATMAP (SCROLLABLE) */}
+                    <div className={`p-6 rounded-xl border ${theme.card}`}>
+                        <h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-widest">👨‍🔧 Technician Live Floor</h3>
+                        {/* 🔴 V80 FIX: SCROLL ADDED */}
+                        <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                            {Object.entries(insights.techStatus).length > 0 ? Object.entries(insights.techStatus).map(([name, status]) => (
+                                <div key={name} className={`flex justify-between items-center p-3 rounded border ${status.status === 'BUSY' ? 'border-green-500/20 bg-green-900/10' : 'border-slate-700 bg-slate-800/50'}`}>
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-2 h-2 rounded-full ${status.status === 'BUSY' ? 'bg-green-500 animate-pulse' : 'bg-slate-500'}`}></div>
+                                        <span className={`text-sm font-bold ${theme.textMain}`}>{name}</span>
+                                    </div>
+                                    <span className={`text-xs font-mono ${status.status === 'BUSY' ? 'text-green-400' : 'text-slate-500'}`}>{status.car}</span>
+                                </div>
+                            )) : <div className="text-center text-slate-500 text-xs italic">No Technicians Registered</div>}
+                        </div>
+                    </div>
+
+                    {/* ZONE 2: PARTS WATCHLIST (SCROLLABLE) */}
+                    <div className={`lg:col-span-2 p-6 rounded-xl border border-red-900/20 ${theme.card}`}>
+                        <h3 className="text-xs font-bold uppercase text-red-400 mb-4 tracking-widest">⚙️ Supply Chain Blockers (Paused Cars)</h3>
+                        {/* 🔴 V80 FIX: SCROLL ADDED */}
+                        <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead className="text-xs uppercase bg-slate-800/50 text-slate-400 sticky top-0"><tr><th className="p-2">Vehicle</th><th className="p-2">Tech</th><th className="p-2">Reason</th></tr></thead>
+                                <tbody>
+                                    {insights.pendingPartsCars.length > 0 ? insights.pendingPartsCars.map(job => (
+                                        <tr key={job.id} className="border-b border-slate-700 hover:bg-slate-800/50">
+                                            <td className={`p-2 font-bold ${theme.textMain}`}>{job.regNo} <span className="text-xs opacity-50 block">{job.model}</span></td>
+                                            <td className="p-2 text-slate-400">{job.technicianName}</td>
+                                            <td className="p-2 text-red-400 font-mono text-xs">{job.pauseReason || 'Waiting Parts'}</td>
+                                        </tr>
+                                    )) : <tr><td colSpan="3" className="p-4 text-center text-slate-500 text-xs italic">No Supply Chain Issues. Smooth Sailing!</td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                {/* 3. REVENUE RECOVERY (BOTTOM ROW) */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    {/* ZONE 3: PENDING ESTIMATES (SCROLLABLE) */}
+                    <div className={`lg:col-span-2 p-6 rounded-xl border ${theme.card}`}>
+                        <h3 className="text-xs font-bold uppercase text-blue-400 mb-4 tracking-widest">💸 Revenue Recovery (Pending Estimates)</h3>
+                        {/* 🔴 V80 FIX: SCROLL ADDED */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-64 overflow-y-auto pr-1">
+                            {insights.pendingEstimates.length > 0 ? insights.pendingEstimates.map(job => (
+                                <div key={job.id} className="p-3 border border-slate-700 rounded bg-slate-800/30 flex justify-between items-center">
+                                    <div>
+                                        <div className={`font-bold ${theme.textMain}`}>{job.customerName}</div>
+                                        <div className="text-xs text-slate-500">{job.regNo} • {job.model}</div>
+                                    </div>
+                                    <button onClick={() => window.open(`https://wa.me/91${job.customerPhone}?text=Hello, regarding your estimate for ${job.regNo}...`, '_blank')} className="bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-lg">
+                                        💬 WHATSAPP
+                                    </button>
+                                </div>
+                            )) : <div className="col-span-2 text-center text-slate-500 text-xs italic p-4">No Pending Estimates. All Approved!</div>}
+                        </div>
+                    </div>
+
+                    {/* ZONE 4: LOW STOCK RADAR (SCROLLABLE) */}
+                    <div className={`p-6 rounded-xl border border-orange-900/20 ${theme.card}`}>
+                        <h3 className="text-xs font-bold uppercase text-orange-400 mb-4 tracking-widest">📉 Low Stock Radar</h3>
+                        {/* 🔴 V80 FIX: SCROLL ADDED */}
+                        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                            {insights.lowStockItems.length > 0 ? insights.lowStockItems.map(item => (
+                                <div key={item.id} className="flex justify-between items-center text-sm border-b border-slate-700 pb-1">
+                                    <span className={theme.textMain}>{item.name}</span>
+                                    <span className="font-bold text-red-500">{item.stock} left</span>
+                                </div>
+                            )) : <div className="text-center text-green-500 text-xs italic p-4">Inventory Healthy.</div>}
+                        </div>
+                    </div>
+                </div>
+
             </div>
         )}
 
@@ -293,7 +420,6 @@ export default function AdminDashboard() {
                                     return (
                                         <tr key={job.id} className={`border-b cursor-pointer transition-colors ${theme.tableRow} ${selectedJob?.id === job.id ? 'bg-blue-600/20 border-l-4 border-l-blue-500' : `border-l-4 ${getStatusBorder(job.status)}`}`} onClick={() => setSelectedJob(job)}>
                                             <td className="px-4 py-3"><div className="font-bold font-mono">{job.regNo}</div><div className={`text-[10px] ${theme.textSub}`}>{job.model} • {job.customerName}</div></td>
-                                            {/* BADGES */}
                                             <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getStatusColor(job.status)}`}>{job.status}</span></td>
                                             <td className="px-4 py-3 text-right font-mono font-bold text-xs">₹{total.toLocaleString()}</td>
                                         </tr>
@@ -352,13 +478,7 @@ export default function AdminDashboard() {
                                             <p className="text-sm opacity-80 italic">"{selectedJob.supervisorObs || 'No notes recorded.'}"</p>
                                             {selectedJob.futureAdvisory?.length > 0 && (<div className="mt-4 p-4 border border-purple-500/30 bg-purple-900/10 rounded"><h5 className="font-bold text-purple-400 text-xs uppercase mb-2">🔮 Future Recommendations</h5>{selectedJob.futureAdvisory.map((item, idx) => (<div key={idx} className="flex justify-between text-xs border-b border-purple-500/20 py-1"><span>{item.item}</span><span className="opacity-70">{item.dueIn}</span></div>))}</div>)}
                                         </div>
-                                        {/* OBD IN INFO */}
-                                        {selectedJob.obdScanReport && (
-                                            <div className="p-4 rounded-lg border border-red-900/50 bg-red-900/10">
-                                                <h5 className="font-bold text-xs uppercase mb-2 text-red-400">🧠 OBD Diagnostic Report</h5>
-                                                <p className="font-mono text-sm">{selectedJob.obdScanReport}</p>
-                                            </div>
-                                        )}
+                                        {selectedJob.obdScanReport && <div className="p-4 rounded-lg border border-red-900/50 bg-red-900/10"><h5 className="font-bold text-xs uppercase mb-2 text-red-400">🧠 OBD Diagnostic Report</h5><p className="font-mono text-sm">{selectedJob.obdScanReport}</p></div>}
                                     </div>
                                 )}
                                 
