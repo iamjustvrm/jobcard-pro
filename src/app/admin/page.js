@@ -10,7 +10,7 @@ export default function AdminDashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // --- THEME STATE (Default: Dark 'Glory') ---
+  // --- THEME STATE ---
   const [darkMode, setDarkMode] = useState(true);
 
   // --- DATA STATES ---
@@ -40,12 +40,15 @@ export default function AdminDashboard() {
 
   // 2. LIVE DATA SYNC
   useEffect(() => {
+    // JOBS
     const qJobs = query(collection(db, "jobs"), orderBy("createdAt", "desc"));
     const unsubJobs = onSnapshot(qJobs, (snap) => setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
+    // INVENTORY
     const qInv = query(collection(db, "inventory"), orderBy("name", "asc"));
     const unsubInv = onSnapshot(qInv, (snap) => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
+    // USERS
     const qUsers = query(collection(db, "users"));
     const unsubUsers = onSnapshot(qUsers, (snap) => setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
@@ -54,10 +57,29 @@ export default function AdminDashboard() {
 
   const handleLogout = async () => { await signOut(auth); router.push('/'); };
 
-  // --- NEW: CLIPBOARD UTILITY ---
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    alert("Tracking Link Copied to Clipboard!");
+  // --- 🛠️ FIXED: BULLETPROOF COPY FUNCTION (Solves NotAllowedError) ---
+  const copyToClipboard = async (text) => {
+    try {
+      // Method 1: Modern API
+      await navigator.clipboard.writeText(text);
+      alert("✅ Link Copied!");
+    } catch (err) {
+      // Method 2: Fallback for Security Blocks
+      try {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        alert("✅ Link Copied!");
+      } catch (fallbackErr) {
+        prompt("Copy this link manually:", text);
+      }
+    }
   };
 
   // --- ANALYTICS ENGINE ---
@@ -132,7 +154,7 @@ export default function AdminDashboard() {
     await addDoc(collection(db, "inventory"), { ...newItem, price: Number(newItem.price), stock: Number(newItem.stock) });
     setNewItem({ name: '', price: '', stock: '', category: 'General' });
   };
-  const handleDeleteItem = async (id) => { if(confirm("Delete?")) await deleteDoc(doc(db, "inventory", id)); };
+  const handleDeleteItem = async (id) => { if(confirm("Delete Item?")) await deleteDoc(doc(db, "inventory", id)); };
   
   const handleCreateUser = async () => {
       if(!newUser.email) return;
@@ -163,7 +185,7 @@ export default function AdminDashboard() {
       <div className={`px-6 py-3 sticky top-0 z-50 border-b flex justify-between items-center print:hidden ${theme.header}`}>
         <div className="flex items-center gap-3">
             <h1 className="text-2xl font-black tracking-tighter text-blue-500">ADMIN<span className={theme.textMain}>HQ</span></h1>
-            <span className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-600/50">V63 RESTORED</span>
+            <span className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-600/50">V65 MASTER</span>
         </div>
         <div className="flex gap-3 items-center">
             <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-full transition-all ${darkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-slate-200 text-slate-600'}`}>
@@ -209,6 +231,7 @@ export default function AdminDashboard() {
         {/* ================= TAB 2: TEAM (LEADERBOARD) ================= */}
         {activeTab === 'TEAM' && (
             <div className="space-y-6 animate-in slide-in-from-bottom-4">
+                {/* LEADERS */}
                 <div className={`rounded-xl p-8 border ${theme.card} relative overflow-hidden`}>
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-500 via-orange-500 to-red-500"></div>
                     <h2 className="text-2xl font-black mb-8 text-center text-yellow-500 uppercase tracking-widest flex items-center justify-center gap-2">🏆 Technician Leaderboard</h2>
@@ -227,6 +250,7 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
+                {/* LIVE FLOOR + PAYOUT */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className={`lg:col-span-2 rounded-xl p-6 border ${theme.card}`}>
                         <h3 className={`font-bold uppercase mb-4 ${theme.textSub}`}>📡 Live Floor Monitor</h3>
@@ -262,7 +286,7 @@ export default function AdminDashboard() {
             </div>
         )}
 
-        {/* ================= TAB 3: JOBS MANAGER (FULL DOSSIER + NEW TRACKING BUTTON) ================= */}
+        {/* ================= TAB 3: JOBS MANAGER (FULL DOSSIER + TRACKING BUTTON) ================= */}
         {activeTab === 'JOBS' && (
             <div className="grid grid-cols-12 gap-6 h-[85vh]">
                 
@@ -309,7 +333,7 @@ export default function AdminDashboard() {
                                         <span className="bg-slate-700 px-2 rounded text-xs py-0.5">{selectedJob.fuelType}</span>
                                     </div>
                                     
-                                    {/* 🆕 ADDED: THE TRACKING LINK BOX (Visible ID for you) */}
+                                    {/* 🆕 TRACKING LINK BOX (WITH FIXED BUTTON) */}
                                     <div className="mt-4 flex items-center gap-2 bg-slate-800/50 p-2 rounded border border-slate-700 w-fit">
                                         <div className="text-[10px] uppercase text-slate-500 font-bold">Job ID:</div>
                                         <code className="text-xs font-mono text-green-400">{selectedJob.id}</code>
@@ -466,7 +490,7 @@ export default function AdminDashboard() {
             </div>
         )}
 
-        {/* ================= TAB 4: INVENTORY (FULL) ================= */}
+        {/* ================= TAB 4: INVENTORY (FULLY EXPANDED) ================= */}
         {activeTab === 'INVENTORY' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className={`p-6 rounded-xl shadow h-fit ${theme.card}`}>
@@ -483,7 +507,7 @@ export default function AdminDashboard() {
             </div>
         )}
 
-        {/* ================= TAB 5: USERS (FULL) ================= */}
+        {/* ================= TAB 5: USERS (FULLY EXPANDED) ================= */}
         {activeTab === 'USERS' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className={`p-6 rounded-xl shadow h-fit border-l-4 border-red-500 ${theme.card}`}>
@@ -502,7 +526,7 @@ export default function AdminDashboard() {
             </div>
         )}
 
-        {/* ================= TAB 6: REPORTS (AUDIT & DOWNLOADS) ================= */}
+        {/* ================= TAB 6: REPORTS (FULLY EXPANDED) ================= */}
         {activeTab === 'REPORTS' && (
             <div className="space-y-6 animate-in fade-in">
                 <div className={`p-8 rounded-xl border text-center ${theme.card}`}>
