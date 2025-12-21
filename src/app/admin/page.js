@@ -181,48 +181,47 @@ export default function AdminDashboard() {
   return (
     <div className={`min-h-screen font-sans transition-colors duration-300 ${theme.bg}`}>
       
-      {/* HEADER */}
-      <div className={`px-6 py-3 sticky top-0 z-50 border-b flex justify-between items-center print:hidden ${theme.header}`}>
-        <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-black tracking-tighter text-blue-500">ADMIN<span className={theme.textMain}>HQ</span></h1>
-            <span className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-600/50">V65 MASTER</span>
+      {/* HEADER - MOBILE OPTIMIZED 📱 */}
+      <div className={`px-4 lg:px-6 py-3 sticky top-0 z-50 border-b flex flex-wrap justify-between items-center print:hidden ${theme.header}`}>
+        <div className="flex items-center gap-2 lg:gap-3 w-full lg:w-auto justify-between lg:justify-start mb-2 lg:mb-0">
+            <h1 className="text-xl lg:text-2xl font-black tracking-tighter text-blue-500">ADMIN<span className={theme.textMain}>HQ</span></h1>
+            <span className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-600/50">V66 MOBILE</span>
+            <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-full lg:hidden transition-all ${darkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-slate-200 text-slate-600'}`}>{darkMode ? '☀️' : '🌑'}</button>
         </div>
-        <div className="flex gap-3 items-center">
-            <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-full transition-all ${darkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-slate-200 text-slate-600'}`}>
-                {darkMode ? '☀️' : '🌑'}
-            </button>
-
+        
+        <div className="flex gap-2 lg:gap-3 items-center w-full lg:w-auto overflow-x-auto pb-1 lg:pb-0 scrollbar-hide">
+            <button onClick={() => setDarkMode(!darkMode)} className={`hidden lg:block p-2 rounded-full transition-all ${darkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-slate-200 text-slate-600'}`}>{darkMode ? '☀️' : '🌑'}</button>
             <nav className={`flex p-1 rounded-lg ${darkMode ? 'bg-[#0f172a]' : 'bg-slate-200'}`}>
                 {['DASHBOARD', 'TEAM', 'JOBS', 'INVENTORY', 'USERS', 'REPORTS'].map(tab => (
-                    <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === tab ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : theme.textSub + ' hover:text-blue-500'}`}>{tab}</button>
+                    <button key={tab} onClick={() => setActiveTab(tab)} className={`px-3 lg:px-4 py-1.5 rounded-md text-[10px] lg:text-xs font-bold whitespace-nowrap transition-all ${activeTab === tab ? 'bg-blue-600 text-white shadow-lg' : theme.textSub + ' hover:text-blue-500'}`}>{tab}</button>
                 ))}
             </nav>
-            <button onClick={() => router.push('/admin/obd')} className={`px-3 py-1.5 rounded text-xs font-bold border border-dashed border-slate-500 ${theme.textSub} hover:text-white`}>🧠 OBD</button>
-            <button onClick={handleLogout} className="bg-red-600 hover:bg-red-500 text-white px-4 py-1.5 rounded-md text-xs font-bold ml-2 shadow-lg shadow-red-900/50">EXIT</button>
+            <button onClick={() => router.push('/admin/obd')} className={`hidden lg:block px-3 py-1.5 rounded text-xs font-bold border border-dashed border-slate-500 ${theme.textSub} hover:text-white`}>🧠 OBD</button>
+            <button onClick={handleLogout} className="bg-red-600 hover:bg-red-500 text-white px-3 lg:px-4 py-1.5 rounded-md text-[10px] lg:text-xs font-bold ml-auto lg:ml-2 shadow-lg whitespace-nowrap">EXIT</button>
         </div>
       </div>
 
-      <div className="max-w-[1600px] mx-auto p-6">
+      <div className="max-w-[1600px] mx-auto p-3 lg:p-6">
 
         {/* ================= TAB 1: DASHBOARD ================= */}
         {activeTab === 'DASHBOARD' && (
             <div className="space-y-6 animate-in fade-in">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 lg:gap-6">
                     <div className={`p-6 rounded-xl border-l-4 border-green-500 shadow-lg ${theme.card}`}>
                         <h3 className={`${theme.textSub} text-[10px] font-bold uppercase tracking-widest`}>Total Revenue</h3>
-                        <p className={`text-4xl font-black mt-2 ${theme.textMain}`}>₹{financials.totalRevenue.toLocaleString()}</p>
+                        <p className={`text-3xl lg:text-4xl font-black mt-2 ${theme.textMain}`}>₹{financials.totalRevenue.toLocaleString()}</p>
                     </div>
                     <div className={`p-6 rounded-xl border-l-4 border-blue-500 shadow-lg ${theme.card}`}>
                         <h3 className={`${theme.textSub} text-[10px] font-bold uppercase tracking-widest`}>Job Volume</h3>
-                        <p className={`text-4xl font-black mt-2 ${theme.textMain}`}>{jobs.length}</p>
+                        <p className={`text-3xl lg:text-4xl font-black mt-2 ${theme.textMain}`}>{jobs.length}</p>
                     </div>
                     <div className={`p-6 rounded-xl border-l-4 border-purple-500 shadow-lg ${theme.card}`}>
                         <h3 className={`${theme.textSub} text-[10px] font-bold uppercase tracking-widest`}>Avg Ticket Value</h3>
-                        <p className={`text-4xl font-black mt-2 ${theme.textMain}`}>₹{jobs.length > 0 ? Math.round(financials.totalRevenue / jobs.length).toLocaleString() : 0}</p>
+                        <p className={`text-3xl lg:text-4xl font-black mt-2 ${theme.textMain}`}>₹{jobs.length > 0 ? Math.round(financials.totalRevenue / jobs.length).toLocaleString() : 0}</p>
                     </div>
                     <div className={`p-6 rounded-xl border-l-4 border-red-500 shadow-lg ${theme.card}`}>
                         <h3 className={`${theme.textSub} text-[10px] font-bold uppercase tracking-widest`}>Active Cars</h3>
-                        <p className={`text-4xl font-black mt-2 ${theme.textMain}`}>{jobs.filter(j => j.status !== 'DELIVERED').length}</p>
+                        <p className={`text-3xl lg:text-4xl font-black mt-2 ${theme.textMain}`}>{jobs.filter(j => j.status !== 'DELIVERED').length}</p>
                     </div>
                 </div>
             </div>
@@ -231,13 +230,12 @@ export default function AdminDashboard() {
         {/* ================= TAB 2: TEAM (LEADERBOARD) ================= */}
         {activeTab === 'TEAM' && (
             <div className="space-y-6 animate-in slide-in-from-bottom-4">
-                {/* LEADERS */}
-                <div className={`rounded-xl p-8 border ${theme.card} relative overflow-hidden`}>
+                <div className={`rounded-xl p-4 lg:p-8 border ${theme.card} relative overflow-hidden`}>
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-500 via-orange-500 to-red-500"></div>
-                    <h2 className="text-2xl font-black mb-8 text-center text-yellow-500 uppercase tracking-widest flex items-center justify-center gap-2">🏆 Technician Leaderboard</h2>
+                    <h2 className="text-xl lg:text-2xl font-black mb-8 text-center text-yellow-500 uppercase tracking-widest flex items-center justify-center gap-2">🏆 Technician Leaderboard</h2>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
                         {teamStats.slice(0, 3).map((tech, i) => (
-                            <div key={tech.name} className={`relative p-6 rounded-2xl border-2 flex flex-col items-center justify-center transform hover:scale-105 transition-all ${i === 0 ? 'border-yellow-500 bg-yellow-500/10 h-64 order-2 shadow-[0_0_30px_rgba(234,179,8,0.3)]' : i === 1 ? 'border-slate-400 bg-slate-400/10 h-56 order-1' : 'border-orange-700 bg-orange-700/10 h-48 order-3'}`}>
+                            <div key={tech.name} className={`relative p-6 rounded-2xl border-2 flex flex-col items-center justify-center transform lg:hover:scale-105 transition-all ${i === 0 ? 'border-yellow-500 bg-yellow-500/10 h-64 order-2 shadow-[0_0_30px_rgba(234,179,8,0.3)]' : i === 1 ? 'border-slate-400 bg-slate-400/10 h-56 order-1' : 'border-orange-700 bg-orange-700/10 h-48 order-3'}`}>
                                 <div className="text-6xl mb-2 filter drop-shadow-xl">{i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</div>
                                 <h3 className={`text-xl font-black uppercase text-center ${theme.textMain}`}>{tech.name}</h3>
                                 <div className="mt-auto text-center w-full">
@@ -250,7 +248,6 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                {/* LIVE FLOOR + PAYOUT */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className={`lg:col-span-2 rounded-xl p-6 border ${theme.card}`}>
                         <h3 className={`font-bold uppercase mb-4 ${theme.textSub}`}>📡 Live Floor Monitor</h3>
@@ -286,12 +283,12 @@ export default function AdminDashboard() {
             </div>
         )}
 
-        {/* ================= TAB 3: JOBS MANAGER (FULL DOSSIER + TRACKING BUTTON) ================= */}
+        {/* ================= TAB 3: JOBS MANAGER (MOBILE OPTIMIZED) ================= */}
         {activeTab === 'JOBS' && (
-            <div className="grid grid-cols-12 gap-6 h-[85vh]">
+            <div className="grid grid-cols-12 gap-6 h-[85vh] overflow-hidden flex flex-col lg:grid">
                 
-                {/* LIST PANEL */}
-                <div className={`col-span-12 lg:col-span-4 rounded-xl border overflow-hidden flex flex-col ${theme.card}`}>
+                {/* LIST PANEL (Shows on Mobile if no job selected) */}
+                <div className={`${selectedJob ? 'hidden lg:flex' : 'flex'} col-span-12 lg:col-span-4 rounded-xl border overflow-hidden flex-col ${theme.card} h-full`}>
                     <div className={`p-4 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} flex justify-between items-center`}>
                         <h3 className={`font-bold ${theme.textMain}`}>Fleet Manager</h3>
                         <input placeholder="Search..." className={`p-2 rounded text-xs w-1/2 font-mono ${theme.input}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
@@ -318,51 +315,50 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                {/* DETAIL PANEL - THE GLORY DOSSIER */}
-                <div className={`col-span-12 lg:col-span-8 rounded-xl border flex flex-col shadow-2xl ${theme.card}`}>
+                {/* DETAIL PANEL (Shows on Mobile if job selected) */}
+                <div className={`${!selectedJob ? 'hidden lg:flex' : 'flex'} col-span-12 lg:col-span-8 rounded-xl border flex-col shadow-2xl ${theme.card} h-full`}>
                     {selectedJob ? (
                         <>
-                            <div className={`p-6 border-b ${darkMode ? 'border-slate-700 bg-[#0f172a]' : 'border-slate-200 bg-white'} flex justify-between items-start`}>
-                                <div>
-                                    <h1 className="text-4xl font-black font-mono tracking-tight text-blue-500">{selectedJob.regNo}</h1>
-                                    <div className="flex gap-3 mt-2 text-sm font-bold opacity-80">
-                                        <span>{selectedJob.model}</span>
-                                        <span>•</span>
-                                        <span>{selectedJob.variant}</span>
-                                        <span>•</span>
-                                        <span className="bg-slate-700 px-2 rounded text-xs py-0.5">{selectedJob.fuelType}</span>
-                                    </div>
-                                    
-                                    {/* 🆕 TRACKING LINK BOX (WITH FIXED BUTTON) */}
-                                    <div className="mt-4 flex items-center gap-2 bg-slate-800/50 p-2 rounded border border-slate-700 w-fit">
-                                        <div className="text-[10px] uppercase text-slate-500 font-bold">Job ID:</div>
-                                        <code className="text-xs font-mono text-green-400">{selectedJob.id}</code>
-                                        <button onClick={() => copyToClipboard(`https://${window.location.host}/track/${selectedJob.id}`)} className="ml-2 bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded text-[10px] font-bold flex items-center gap-1 shadow-lg">
-                                            🔗 COPY LINK FOR WHATSAPP
-                                        </button>
-                                    </div>
+                            <div className={`p-4 lg:p-6 border-b ${darkMode ? 'border-slate-700 bg-[#0f172a]' : 'border-slate-200 bg-white'}`}>
+                                <button onClick={() => setSelectedJob(null)} className="lg:hidden text-xs text-blue-500 font-bold mb-2">⬅ BACK TO LIST</button>
+                                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                                    <div>
+                                        <h1 className="text-3xl lg:text-4xl font-black font-mono tracking-tight text-blue-500">{selectedJob.regNo}</h1>
+                                        <div className="flex gap-2 mt-2 text-xs lg:text-sm font-bold opacity-80 flex-wrap">
+                                            <span>{selectedJob.model}</span><span>•</span><span>{selectedJob.variant}</span><span>•</span><span className="bg-slate-700 px-2 rounded text-xs py-0.5">{selectedJob.fuelType}</span>
+                                        </div>
+                                        
+                                        {/* 🆕 TRACKING LINK BOX (FIXED) */}
+                                        <div className="mt-4 flex items-center gap-2 bg-slate-800/50 p-2 rounded border border-slate-700 w-full lg:w-fit">
+                                            <div className="text-[10px] uppercase text-slate-500 font-bold">Job ID:</div>
+                                            <code className="text-xs font-mono text-green-400 truncate max-w-[100px]">{selectedJob.id}</code>
+                                            <button onClick={() => copyToClipboard(`https://${window.location.host}/track/${selectedJob.id}`)} className="ml-auto bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded text-[10px] font-bold flex items-center gap-1 shadow-lg whitespace-nowrap">
+                                                🔗 COPY LINK
+                                            </button>
+                                        </div>
 
-                                </div>
-                                <div className="text-right">
-                                    <div className={`text-xs font-bold uppercase mb-1 ${theme.textSub}`}>Current Status</div>
-                                    <div className={`text-lg font-black px-3 py-1 rounded border ${selectedJob.status === 'READY' ? 'border-green-500 text-green-500 bg-green-900/10' : 'border-blue-500 text-blue-500 bg-blue-900/10'}`}>{selectedJob.status}</div>
-                                    <div className="mt-2">
-                                        <button onClick={() => router.push(`/bill/${selectedJob.id}`)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-bold text-xs shadow-lg">📄 VIEW INVOICE</button>
-                                        <button onClick={(e) => {if(confirm("Delete Job Permanently?")) deleteDoc(doc(db, "jobs", selectedJob.id))}} className="ml-2 bg-red-900/30 text-red-500 border border-red-900 hover:bg-red-900 hover:text-white px-4 py-2 rounded font-bold text-xs">🗑️ DELETE</button>
+                                    </div>
+                                    <div className="text-left lg:text-right w-full lg:w-auto">
+                                        <div className={`text-xs font-bold uppercase mb-1 ${theme.textSub}`}>Current Status</div>
+                                        <div className={`text-lg font-black px-3 py-1 rounded border ${selectedJob.status === 'READY' ? 'border-green-500 text-green-500 bg-green-900/10' : 'border-blue-500 text-blue-500 bg-blue-900/10'}`}>{selectedJob.status}</div>
+                                        <div className="mt-2 flex gap-2">
+                                            <button onClick={() => router.push(`/bill/${selectedJob.id}`)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-bold text-xs shadow-lg flex-1">📄 INVOICE</button>
+                                            <button onClick={(e) => {if(confirm("Delete Job Permanently?")) deleteDoc(doc(db, "jobs", selectedJob.id))}} className="bg-red-900/30 text-red-500 border border-red-900 hover:bg-red-900 hover:text-white px-4 py-2 rounded font-bold text-xs flex-1">🗑️ DELETE</button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className={`flex border-b ${darkMode ? 'border-slate-700 bg-[#1e293b]' : 'border-slate-200 bg-slate-50'}`}>
+                            <div className={`flex border-b overflow-x-auto ${darkMode ? 'border-slate-700 bg-[#1e293b]' : 'border-slate-200 bg-slate-50'}`}>
                                 {['INFO', 'TASKS', 'FINANCE', 'LOGS'].map(tab => (
-                                    <button key={tab} onClick={() => setJobDetailTab(tab)} className={`flex-1 py-3 text-xs font-bold tracking-widest border-b-2 transition-all ${jobDetailTab === tab ? 'border-blue-500 text-blue-500 bg-blue-500/5' : 'border-transparent ' + theme.textSub}`}>{tab}</button>
+                                    <button key={tab} onClick={() => setJobDetailTab(tab)} className={`flex-1 py-3 px-4 text-xs font-bold tracking-widest border-b-2 transition-all whitespace-nowrap ${jobDetailTab === tab ? 'border-blue-500 text-blue-500 bg-blue-500/5' : 'border-transparent ' + theme.textSub}`}>{tab}</button>
                                 ))}
                             </div>
 
-                            <div className="flex-grow overflow-y-auto p-6">
+                            <div className="flex-grow overflow-y-auto p-4 lg:p-6">
                                 {jobDetailTab === 'INFO' && (
                                     <div className="space-y-6">
-                                        <div className="grid grid-cols-2 gap-6">
+                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                             <div className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
                                                 <h4 className="text-xs font-bold uppercase text-blue-500 mb-4">👤 Customer Profile</h4>
                                                 <div className="space-y-2 text-sm text-gray-300">
@@ -431,7 +427,7 @@ export default function AdminDashboard() {
 
                                 {jobDetailTab === 'FINANCE' && (
                                     <div className="space-y-6">
-                                        <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                             <div>
                                                 <h4 className="text-xs font-bold uppercase text-slate-500 mb-2 border-b border-slate-700 pb-1">Parts Used</h4>
                                                 <div className="space-y-1">
@@ -490,7 +486,7 @@ export default function AdminDashboard() {
             </div>
         )}
 
-        {/* ================= TAB 4: INVENTORY (FULLY EXPANDED) ================= */}
+        {/* ================= TAB 4: INVENTORY (FULL WRAPPED) ================= */}
         {activeTab === 'INVENTORY' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className={`p-6 rounded-xl shadow h-fit ${theme.card}`}>
@@ -502,12 +498,14 @@ export default function AdminDashboard() {
                     </div>
                 </div>
                 <div className={`col-span-2 rounded-xl shadow overflow-hidden ${theme.card}`}>
-                    <table className="w-full text-sm text-left"><thead className={theme.tableHead}><tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Price</th><th className="px-4 py-2">Stock</th><th className="px-4 py-2">Action</th></tr></thead><tbody className={theme.textMain}>{inventory.map(i => (<tr key={i.id} className={`border-b ${theme.tableRow}`}><td className="px-4 py-2 font-bold">{i.name}</td><td className="px-4 py-2">₹{i.price}</td><td className="px-4 py-2">{i.stock}</td><td className="px-4 py-2"><button onClick={()=>handleDeleteItem(i.id)} className="text-red-500">×</button></td></tr>))}</tbody></table>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left"><thead className={theme.tableHead}><tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Price</th><th className="px-4 py-2">Stock</th><th className="px-4 py-2">Action</th></tr></thead><tbody className={theme.textMain}>{inventory.map(i => (<tr key={i.id} className={`border-b ${theme.tableRow}`}><td className="px-4 py-2 font-bold">{i.name}</td><td className="px-4 py-2">₹{i.price}</td><td className="px-4 py-2">{i.stock}</td><td className="px-4 py-2"><button onClick={()=>handleDeleteItem(i.id)} className="text-red-500">×</button></td></tr>))}</tbody></table>
+                    </div>
                 </div>
             </div>
         )}
 
-        {/* ================= TAB 5: USERS (FULLY EXPANDED) ================= */}
+        {/* ================= TAB 5: USERS (FULL WRAPPED) ================= */}
         {activeTab === 'USERS' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className={`p-6 rounded-xl shadow h-fit border-l-4 border-red-500 ${theme.card}`}>
@@ -521,12 +519,14 @@ export default function AdminDashboard() {
                 </div>
                 <div className={`col-span-2 rounded-xl shadow overflow-hidden ${theme.card}`}>
                     <h3 className={`p-4 font-bold border-b ${theme.textMain} ${darkMode ? 'border-slate-700' : 'border-gray-200'}`}>Active Users</h3>
-                    <table className="w-full text-sm text-left"><thead className={theme.tableHead}><tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Role</th><th className="px-4 py-2">Email</th><th className="px-4 py-2">Action</th></tr></thead><tbody className={theme.textMain}>{usersList.map(u => (<tr key={u.id} className={`border-b ${theme.tableRow}`}><td className="px-4 py-2 font-bold">{u.name}</td><td className="px-4 py-2 uppercase text-xs font-bold text-blue-500">{u.role}</td><td className={`px-4 py-2 ${theme.textSub}`}>{u.email}</td><td className="px-4 py-2"><button onClick={()=>handleDeleteUser(u.id)} className="text-red-500 font-bold">REVOKE</button></td></tr>))}</tbody></table>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left"><thead className={theme.tableHead}><tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Role</th><th className="px-4 py-2">Email</th><th className="px-4 py-2">Action</th></tr></thead><tbody className={theme.textMain}>{usersList.map(u => (<tr key={u.id} className={`border-b ${theme.tableRow}`}><td className="px-4 py-2 font-bold">{u.name}</td><td className="px-4 py-2 uppercase text-xs font-bold text-blue-500">{u.role}</td><td className={`px-4 py-2 ${theme.textSub}`}>{u.email}</td><td className="px-4 py-2"><button onClick={()=>handleDeleteUser(u.id)} className="text-red-500 font-bold">REVOKE</button></td></tr>))}</tbody></table>
+                    </div>
                 </div>
             </div>
         )}
 
-        {/* ================= TAB 6: REPORTS (FULLY EXPANDED) ================= */}
+        {/* ================= TAB 6: REPORTS (FULL WRAPPED) ================= */}
         {activeTab === 'REPORTS' && (
             <div className="space-y-6 animate-in fade-in">
                 <div className={`p-8 rounded-xl border text-center ${theme.card}`}>
@@ -539,14 +539,14 @@ export default function AdminDashboard() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className={`p-6 rounded-xl border ${theme.card}`}>
-                        <h3 className={`text-sm font-bold uppercase mb-4 ${theme.textSub}`}>Revenue Split (Parts vs Labor)</h3>
+                        <h3 className={`text-sm font-bold uppercase mb-4 ${theme.textSub}`}>Revenue Split</h3>
                         <div className="flex items-end gap-4 h-40">
                             <div className="w-1/2 bg-blue-600 rounded-t flex flex-col justify-end text-center text-white pb-2" style={{height: '100%'}}><span className="font-bold">₹{financials.totalLabor.toLocaleString()}</span><span className="text-xs opacity-70">LABOR</span></div>
                             <div className="w-1/2 bg-orange-500 rounded-t flex flex-col justify-end text-center text-white pb-2" style={{height: `${(financials.totalParts / financials.totalRevenue)*100}%`}}><span className="font-bold">₹{financials.totalParts.toLocaleString()}</span><span className="text-xs opacity-70">PARTS</span></div>
                         </div>
                     </div>
                     <div className={`p-6 rounded-xl border ${theme.card}`}>
-                        <h3 className={`text-sm font-bold uppercase mb-4 ${theme.textSub}`}>Job Status Flow</h3>
+                        <h3 className={`text-sm font-bold uppercase mb-4 ${theme.textSub}`}>Job Status</h3>
                         <div className="space-y-3">
                             {['ESTIMATE', 'WORK_IN_PROGRESS', 'READY', 'DELIVERED'].map(status => {
                                 const count = jobs.filter(j => j.status === status).length;
